@@ -137,4 +137,57 @@ if st.session_state.candidate_titles:
             st.rerun()
 
 # --- 8. 內文撰寫區 ---
-if 'sel_title
+if 'sel_title' in st.session_state:
+    st.divider()
+    st.markdown(f"## 📝 標題：{st.session_state.sel_title}")
+    
+    with st.expander("置入設定 (選填)"):
+        is_promo = st.checkbox("開啟置入")
+        prod_info = st.text_input("產品資訊", "XX診所")
+
+    if st.button("✍️ 撰寫內文 (去 AI 感模式)"):
+        with st.spinner("正在用鄉民口吻寫作..."):
+            try:
+                # 1. 生成內文
+                body_prompt = f"""
+                {SYSTEM_INSTRUCTION}
+                標題：{st.session_state.sel_title}
+                主題：{user_topic}
+                語氣：{tone_intensity}
+                任務：請寫一篇 PTT 內文 (約150-200字)。
+                要求：第一人稱，口語化，不要有開頭問候，不要結尾總結。
+                """
+                body_response = model.generate_content(body_prompt, safety_settings=safe_settings).text
+                
+                # 2. 生成回文
+                comment_prompt = f"""
+                {SYSTEM_INSTRUCTION}
+                針對這篇文章：
+                "{body_response}"
+                生成 10 則 PTT 回文。
+                【嚴格格式要求】：
+                1. 每一行開頭必須是 `推|`、`噓|` 或 `→|`。
+                2. 不要顯示 ID。
+                3. 直接換行，不要有空行。
+                {f"【置入】：請在其中 1-2 則自然提到「{prod_info}」。" if is_promo else ""}
+                """
+                comment_response = model.generate_content(comment_prompt, safety_settings=safe_settings).text
+                
+                # --- 顯示結果 (強制雙空格換行) ---
+                st.subheader("內文：")
+                st.markdown(body_response)
+                
+                st.subheader("回文：")
+                comments = comment_response.strip().split('\n')
+                formatted_comments = ""
+                for c in comments:
+                    c = c.strip()
+                    if c:
+                        # 這是最重要的格式修正
+                        formatted_comments += c + "  \n" 
+                
+                st.markdown(formatted_comments)
+                
+            except Exception as e:
+                st.error("❌ 撰寫失敗")
+                st.code(str(e))
