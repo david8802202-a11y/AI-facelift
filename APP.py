@@ -11,37 +11,33 @@ if not api_key:
     st.error("❌ 找不到 API Key！請檢查 Streamlit 的 Secrets 設定。")
     st.stop()
 
-# --- 3. 設定 Google AI (包含自動模型切換) ---
+# --- 3. 設定 Google AI ---
 genai.configure(api_key=api_key)
 
-# 嘗試建立模型，如果新版失敗就自動換舊版
+# 【關鍵修改】改用最穩定的 'gemini-pro' (這是一代模型，絕對支援)
+# 如果想要嘗試新版，可以以後再改回 'gemini-1.5-flash'
 try:
-    # 優先嘗試最新版 Flash (速度快、免費額度高)
-    model = genai.GenerativeModel('gemini-1.5-flash')
-    # 測試一下是否活著
-    response = model.generate_content("Hi", generation_config={"max_output_tokens": 1})
-except Exception:
-    try:
-        # 如果失敗，嘗試 Pro 版本
-        model = genai.GenerativeModel('gemini-1.5-pro')
-    except Exception:
-        # 如果再失敗，使用最舊但最穩的 Pro 版本
-        model = genai.GenerativeModel('gemini-pro')
+    model = genai.GenerativeModel('gemini-pro')
+    # 測試一發，確認活著
+    response = model.generate_content("test")
+except Exception as e:
+    st.error(f"連線嚴重錯誤：{e}")
+    st.stop()
 
-# --- 4. 系統提示詞 (AI 的人設) ---
+# --- 4. 系統提示詞 ---
 SYSTEM_INSTRUCTION = """
 你是一個精通台灣 PTT (批踢踢實業坊) 與 Dcard 文化的資深鄉民，同時也是專業的醫美行銷文案寫手。
 你的任務是根據使用者的需求，撰寫極具討論度、真實感、甚至帶點爭議性的文章。
 
 風格要求：
-1. 【標題】：要有爆點，依照版規格式 (如 [閒聊]、[討論]、[問題])。
+1. 【標題】：依照版規格式 (如 [閒聊]、[討論]、[問題])。
 2. 【內文】：口語化，不要像教科書，要像真實使用者的抱怨、疑惑或心得分享。150字左右。
 3. 【回文】：模擬鄉民推噓文，包含護航、酸民、反串、中肯分析等不同立場。需產出10則。
 """
 
 # --- 5. 網頁介面 ---
 st.title("💉 PTT/Dcard 醫美文案生成器")
-st.markdown("使用 Google Gemini AI 驅動，一鍵生成爭議性話題與鄉民回覆。")
+st.caption("目前使用模型：Gemini Pro (穩定版)")
 
 # 步驟 1: 選擇大綱
 st.header("步驟 1：選擇話題")
@@ -68,13 +64,11 @@ if st.button("🚀 生成 5 個標題"):
             請針對「{category}」這個主題，發想 5 個 PTT/Dcard 風格的標題。
             標題要有吸引力，只要列出標題就好，不要有編號或其他廢話。
             """
-            # 這裡呼叫的是 model 物件，不是字串
             response = model.generate_content(prompt)
-            
             titles = response.text.strip().split('\n')
             st.session_state.generated_titles = [t.strip() for t in titles if t.strip()]
         except Exception as e:
-            st.error(f"生成失敗，請稍後再試。錯誤訊息：{e}")
+            st.error(f"生成失敗：{e}")
 
 # 步驟 2: 選擇並生成內容
 if st.session_state.generated_titles:
@@ -108,4 +102,4 @@ if st.session_state.generated_titles:
                 st.markdown(response.text)
                 
             except Exception as e:
-                st.error(f"生成失敗，請稍後再試。錯誤訊息：{e}")
+                st.error(f"生成失敗：{e}")
