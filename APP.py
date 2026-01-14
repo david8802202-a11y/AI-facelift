@@ -1,54 +1,52 @@
 import streamlit as st
 import google.generativeai as genai
-import importlib.metadata
 import os
 
-st.set_page_config(page_title="V21 終極診斷", page_icon="🚑")
-st.title("🚑 V21 系統健康檢查")
+st.set_page_config(page_title="金鑰透視鏡", page_icon="🧐")
+st.title("🧐 API Key 權限透視鏡")
 
-# --- 1. 檢查工具包版本 (關鍵！) ---
-try:
-    lib_version = importlib.metadata.version('google-generativeai')
-    st.info(f"📦 目前安裝的 AI 工具包版本：{lib_version}")
-    
-    # 判斷版本是否合格
-    if lib_version < "0.7.2":
-        st.error(f"❌ 版本過舊！您需要 0.7.2 以上，但您只有 {lib_version}")
-        st.warning("👉 請務必更新 requirements.txt 並重啟 App！")
-    else:
-        st.success("✅ 版本合格！(至少工具包是新的)")
-except:
-    st.error("❌ 無法偵測版本，環境嚴重損壞。")
-
-# --- 2. 檢查 API Key ---
+# 1. 讀取 Key
 api_key = st.secrets.get("GOOGLE_API_KEY")
+
 if not api_key:
-    st.error("❌ Secrets 裡找不到 GOOGLE_API_KEY")
+    st.error("❌ 尚未設定 Secrets！")
     st.stop()
 
-# 檢查 Key 格式
-if not api_key.startswith("AIza"):
-    st.warning("⚠️ 警告：您的 Key 不是以 'AIza' 開頭！")
-    st.warning("這代表您可能用到 GCP Service Account 或其他類型的 Key，這會導致連線失敗。")
-    st.markdown("[請點此去申請正確的 Key (Google AI Studio)](https://aistudio.google.com/app/apikey)")
-else:
-    st.success("✅ Key 格式正確 (AIza 開頭)")
+# 顯示 Key 的前幾碼確認有沒有換新
+st.info(f"🔑 目前使用的 Key：{api_key[:8]}... (請確認這是不是您剛申請的那把)")
 
 genai.configure(api_key=api_key)
 
-# --- 3. 實彈射擊測試 (印出詳細錯誤) ---
-st.divider()
-st.subheader("🔫 模型連線測試")
+# 2. 測試：列出所有可用模型
+st.write("正在詢問 Google 這把 Key 能看到哪些模型...")
 
-models_to_test = ["models/gemini-1.5-flash", "models/gemini-pro"]
+try:
+    # 這是最底層的查詢指令，直接問 Google "我有什麼權限？"
+    models = list(genai.list_models())
+    
+    if len(models) == 0:
+        st.error("❌ 連線成功，但這把 Key 的權限列表是空的！")
+        st.warning("👉 這代表您申請 Key 時選到了「舊的/壞掉的專案」。請重新申請，務必選擇 **'Create in NEW project'**。")
+    else:
+        st.success(f"🎉 成功！這把 Key 可以存取 {len(models)} 個模型！")
+        
+        # 顯示模型清單
+        model_names = [m.name for m in models]
+        st.code(model_names)
+        
+        # 檢查有沒有我們需要的
+        if "models/gemini-1.5-flash" in model_names:
+            st.balloons()
+            st.markdown("### ✅ 檢測通過！您的 Key 包含 `gemini-1.5-flash`！")
+            st.markdown("現在您可以放心地把程式碼換回 **正式版** 了！")
+        else:
+            st.warning("⚠️ 雖然有連上，但清單裡沒看到 gemini-1.5-flash，可能需要用 gemini-pro。")
 
-for m in models_to_test:
-    st.write(f"正在測試：`{m}` ...")
-    try:
-        model = genai.GenerativeModel(m)
-        response = model.generate_content("Hi", generation_config={"max_output_tokens": 1})
-        st.success(f"🎉 {m} 連線成功！")
-    except Exception as e:
-        st.error(f"❌ {m} 失敗")
-        # 這是最重要的部分，印出真實錯誤
-        st.code(str(e))
+except Exception as e:
+    st.error("❌ 連線發生錯誤 (無法列出清單)")
+    st.code(str(e))
+    
+    if "400" in str(e) or "INVALID_ARGUMENT" in str(e):
+        st.warning("💡 錯誤代碼 400：Key 的格式有錯，或專案權限未開通。")
+    elif "404" in str(e):
+        st.warning("💡 錯誤代碼 404：這把 Key 所屬的專案沒有開啟 'Generative Language API'。解決方法：申請 Key 時請選 **New Project**。")
