@@ -3,12 +3,12 @@ import google.generativeai as genai
 import os
 
 # --- 1. 設定頁面 ---
-st.set_page_config(page_title="PTT醫美文案產生器 V7 (自選模型版)", page_icon="🧬")
+st.set_page_config(page_title="PTT醫美文案產生器 V8", page_icon="🧬")
 
 # --- 2. 讀取 API Key ---
 api_key = st.secrets.get("GOOGLE_API_KEY")
 
-st.title("🧬 V7 終極自選版")
+st.title("🧬 PTT醫美文案產生器 V8 (優化版)")
 
 if not api_key:
     st.error("❌ 找不到 API Key！請檢查 Streamlit 的 Secrets 設定。")
@@ -16,62 +16,65 @@ if not api_key:
 
 genai.configure(api_key=api_key)
 
-# --- 3. 環境與模型診斷 (關鍵！) ---
+# --- 3. 環境與模型診斷 ---
 try:
-    # 顯示目前安裝的套件版本 (如果這裡顯示低於 0.7.2，代表 requirements.txt 沒生效)
     import importlib.metadata
     version = importlib.metadata.version('google-generativeai')
-    st.caption(f"🔧 目前系統安裝套件版本：{version}")
     if version < "0.7.2":
-        st.warning("⚠️ 警告：套件版本過舊！這就是導致找不到模型的原因。請務必強制重啟 App。")
+        st.caption(f"🔧 系統警告：目前套件版本 {version} 過舊，建議重啟 App。")
 except:
-    st.caption("🔧 無法偵測套件版本")
+    pass
 
-# --- 4. 抓取「真正可用」的模型清單 ---
-# 不再用猜的，直接問 Google 現在有哪些模型給我們用
+# --- 4. 抓取「真正可用」的模型清單 (維持 V7 架構) ---
 @st.cache_resource
 def get_real_models():
     try:
         model_list = []
         for m in genai.list_models():
-            # 只抓可以生成文字的模型
             if 'generateContent' in m.supported_generation_methods:
                 model_list.append(m.name)
         return model_list
     except Exception as e:
         return []
 
-with st.spinner('正在向 Google 查詢您的帳號可用模型...'):
+with st.spinner('正在同步 Google 模型清單...'):
     real_models = get_real_models()
 
-# --- 5. 側邊欄：讓你選模型 ---
+# --- 5. 側邊欄：模型選擇 ---
 with st.sidebar:
     st.header("🤖 模型選擇")
     
     if real_models:
-        # 這裡會列出 API 回傳的真實名單
         selected_model = st.selectbox(
             "請選擇要使用的模型：",
             real_models,
             index=0
         )
-        st.success(f"已選擇：{selected_model}")
+        st.success(f"已鎖定：{selected_model}")
     else:
-        # 萬一連清單都抓不到，提供手動輸入框 (最後手段)
-        st.error("無法自動取得清單，請手動輸入模型名稱")
+        st.error("無法自動取得清單，請手動輸入")
         selected_model = st.text_input("手動輸入模型名稱", "models/gemini-1.5-flash")
 
 # 建立模型物件
 model = genai.GenerativeModel(selected_model)
 
-# --- 6. 系統提示詞 ---
+# --- 6. 系統提示詞 (針對您的需求進行 4 點調整) ---
 SYSTEM_INSTRUCTION = """
 你是一個精通台灣 PTT (批踢踢實業坊) 與 Dcard 文化的資深鄉民，同時也是專業的醫美行銷文案寫手。
 
 【格式嚴格要求】：
-1. **標題分類**：所有標題必須包含分類標籤。例如 `[閒聊]`、`[討論]`、`[問題]`、`[心得]`。
-2. **標題長度**：標題文字部分 (不含前面的分類標籤) 必須控制在 18 個繁體中文字以內。
-3. **回文排版**：每一則回文都必須獨立換行。
+1. **標題分類**：標題開頭的標籤，只能從 `[問題]` 或 `[討論]` 這兩者擇一使用。
+2. **標題內容**：請發揮創意，不用在意字數限制，重點是吸引人點進來。
+3. **內文排版**：
+   - 請務必**分段**與**換行**。
+   - 不要把所有文字擠成一大塊，要在適當的句點後按 Enter 換行，模擬真實閱讀體驗。
+4. **回文格式 (重要)**：
+   - 每一則回文必須**獨立一行**。
+   - 必須嚴格保留 `推|`、`噓|`、`→|` 這些符號。
+   - 範例：
+     推| 真的假的？我以為那個沒效
+     噓| 業配文也太明顯了吧
+     →| 樓上在兇什麼
 """
 
 st.divider()
@@ -105,20 +108,22 @@ if 'generated_titles' not in st.session_state:
 
 # 生成標題按鈕
 if st.button("🚀 生成 5 個標題"):
-    with st.spinner(f'正在使用 {selected_model} 生成中...'):
+    with st.spinner(f'正在構思標題...'):
         try:
             prompt = f"""
             {SYSTEM_INSTRUCTION}
             主題：{category}，語氣：{tone_intensity}。
-            請發想 5 個 PTT 風格標題，需包含分類標籤，標題文字 18 字內，切角要多元。
+            請發想 5 個 PTT 風格標題。
+            要求：
+            1. 只能使用 `[問題]` 或 `[討論]` 作為開頭分類。
+            2. 切角要多元，不要重複。
             直接列出，一行一個。
             """
             response = model.generate_content(prompt)
             titles = response.text.strip().split('\n')
             st.session_state.generated_titles = [t.strip() for t in titles if t.strip()]
         except Exception as e:
-            st.error("生成失敗！錯誤原因如下：")
-            st.code(str(e))
+            st.error(f"生成失敗：{e}")
 
 # 生成內文按鈕
 if st.session_state.generated_titles:
@@ -131,8 +136,8 @@ if st.session_state.generated_titles:
                 標題：{selected_title}
                 語氣：{tone_intensity} ({tone_prompt})
                 請撰寫：
-                1. 內文 (150字)
-                2. 10則回文 (推/噓/→)，每一則回文前務必換行。
+                1. 內文 (約150字，請記得適度換行分段)
+                2. 10則回文 (務必包含 推| 噓| →| 符號)
                 """
                 if is_promotion and product_info:
                     content_prompt += f"需自然置入 3 則關於「{product_info}」的推薦回文。"
@@ -140,5 +145,4 @@ if st.session_state.generated_titles:
                 response = model.generate_content(content_prompt)
                 st.markdown(response.text)
             except Exception as e:
-                st.error("生成失敗！錯誤原因如下：")
-                st.code(str(e))
+                st.error(f"生成失敗：{e}")
