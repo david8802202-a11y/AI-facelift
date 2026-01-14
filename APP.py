@@ -4,11 +4,11 @@ import os
 import random
 
 # --- 1. 設定頁面 ---
-st.set_page_config(page_title="PTT/Dcard 文案產生器 (V33 經典版)", page_icon="🏛️")
+st.set_page_config(page_title="PTT/Dcard 文案產生器 (V34 生存版)", page_icon="🏳️")
 
 api_key = st.secrets.get("GOOGLE_API_KEY")
 
-st.title("🏛️ PTT/Dcard 文案產生器 (V33 經典版)")
+st.title("🏳️ PTT/Dcard 文案產生器 (V34 生存版)")
 
 if not api_key:
     st.error("❌ 找不到 API Key！")
@@ -16,34 +16,59 @@ if not api_key:
 
 genai.configure(api_key=api_key)
 
-# --- 2. 核心連線邏輯 (強制使用 gemini-pro 1.0) ---
+# --- 2. 核心連線邏輯 (不猜名字，直接抓清單) ---
 @st.cache_resource
-def get_stable_model():
-    # 這裡我們不自動亂抓了，直接指定最經典的 1.0 版本
-    # 這個版本最不容易出錯，雖然速度沒 Flash 快，但最穩定
-    target_models = [
-        "gemini-pro",         # Google 最標準的名稱
-        "models/gemini-pro",  # 另一種寫法
-        "models/gemini-1.5-pro-latest" # 萬一 1.0 真的不行，才用 1.5 Pro (不是 Flash)
-    ]
-    
-    for m in target_models:
-        try:
-            model = genai.GenerativeModel(m)
-            # 發送一個極短的測試訊號
-            model.generate_content("Hi", generation_config={"max_output_tokens": 1})
-            return m
-        except:
-            continue
-    return None
+def get_any_working_model():
+    try:
+        # 1. 直接向 Google 要一張「現在能用的清單」
+        models = list(genai.list_models())
+        
+        # 2. 過濾出能寫字的 (generateContent)
+        available_models = [m.name for m in models if 'generateContent' in m.supported_generation_methods]
+        
+        if not available_models:
+            return None, "您的 Key 連線成功，但 Google 說您沒有任何可用的模型權限。"
 
-valid_model_name = get_stable_model()
+        # 3. 智慧排序 (盡量避開 2.5 這種額度少的，優先找 1.5 或 1.0)
+        # 我們把看起來比較穩的排前面，但如果沒有，就用剩下的
+        def sort_priority(name):
+            if "gemini-1.5-flash" in name: return 0  # 首選
+            if "gemini-1.0-pro" in name: return 1    # 次選
+            if "gemini-pro" in name: return 2        # 備用
+            if "gemini-1.5-pro" in name: return 3
+            return 10 # 其他 (包含 2.5)
+            
+        available_models.sort(key=sort_priority)
+        
+        # 4. 回傳排在第一位的那個 (就是它了！)
+        best_pick = available_models[0]
+        return best_pick, None
+        
+    except Exception as e:
+        return None, str(e)
 
-if not valid_model_name:
-    st.error("❌ 連線失敗。請確認您的 Key 是否有權限存取 gemini-pro。")
+# 執行抓取
+final_model_name, error_msg = get_any_working_model()
+
+if not final_model_name:
+    st.error("❌ 嚴重錯誤：無法抓取任何模型。")
+    st.error(f"錯誤訊息：{error_msg}")
     st.stop()
 
-# --- 3. 安全設定 (全開，防止醫美話題被擋) ---
+# 建立模型
+model = genai.GenerativeModel(final_model_name)
+
+# --- 3. 顯示目前抓到的救命模型 ---
+with st.sidebar:
+    st.header("🤖 目前運作模型")
+    st.success(f"已自動抓取：\n`{final_model_name}`")
+    st.caption("這是系統掃描後，您帳號中「目前排第一位」的可用模型。")
+    
+    # 如果抓到 2.5，還是提醒一下
+    if "2.5" in final_model_name:
+        st.warning("⚠️ 注意：系統抓到了 2.5 版本，這個版本免費額度極少(約20次)，請珍惜使用。")
+
+# --- 4. 安全設定 (全開) ---
 safe_settings = [
     {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
     {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
@@ -51,14 +76,7 @@ safe_settings = [
     {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
 ]
 
-model = genai.GenerativeModel(valid_model_name)
-
-# 顯示目前使用的模型 (讓您確認不是 Flash)
-with st.sidebar:
-    st.success(f"✅ 已鎖定經典版模型：\n{valid_model_name}")
-    st.caption("已避開 1.5 Flash 與 2.5 版本")
-
-# --- 4. 讀取歷史風格 ---
+# --- 5. 歷史風格讀取 ---
 reference_titles = []
 if os.path.exists("history.txt"):
     try:
@@ -69,7 +87,7 @@ if os.path.exists("history.txt"):
     except:
         pass
 
-# --- 5. 提示詞設定 ---
+# --- 6. 提示詞設定 ---
 SYSTEM_INSTRUCTION = """
 你是一個台灣 PTT (批踢踢實業坊 Facelift 版) 的資深鄉民。
 **任務：寫出「完全不像 AI、口語化」的文章。**
@@ -82,7 +100,7 @@ SYSTEM_INSTRUCTION = """
    - 回文：**每一行回文必須以 `推|`、`噓|` 或 `→|` 開頭**，後面接內容，不要有帳號。
 """
 
-# --- 6. 主介面 ---
+# --- 7. 主介面 ---
 if 'used_titles' not in st.session_state: st.session_state.used_titles = set()
 if 'candidate_titles' not in st.session_state: st.session_state.candidate_titles = []
 
@@ -105,7 +123,7 @@ with col2:
 
     st.markdown("---")
     if st.button("🚀 生成 5 個標題 (約18字)", use_container_width=True):
-        with st.spinner(f"正在使用 {valid_model_name} 生成..."):
+        with st.spinner(f"正在使用 {final_model_name} 生成..."):
             try:
                 target_tag = ptt_tag.split(" ")[0] if "隨機" not in ptt_tag else "[問題]或[閒聊]"
                 prompt = f"""
@@ -119,7 +137,7 @@ with col2:
                 4. 語氣：{tone_intensity}
                 直接列出，一行一個，不要編號。
                 """
-                # 加入 safety_settings
+                # 使用安全設定
                 response = model.generate_content(prompt, safety_settings=safe_settings)
                 titles = response.text.strip().split('\n')
                 st.session_state.candidate_titles = [t.strip() for t in titles if t.strip()][:5]
@@ -127,7 +145,7 @@ with col2:
                 st.error("❌ 生成失敗！")
                 st.code(str(e))
 
-# --- 7. 結果顯示區 ---
+# --- 8. 結果顯示 ---
 if st.session_state.candidate_titles:
     st.markdown("### 👇 生成結果 (點擊採用)")
     for i, t in enumerate(st.session_state.candidate_titles):
@@ -136,7 +154,7 @@ if st.session_state.candidate_titles:
             st.session_state.candidate_titles = []
             st.rerun()
 
-# --- 8. 內文撰寫區 ---
+# --- 9. 內文撰寫區 ---
 if 'sel_title' in st.session_state:
     st.divider()
     st.markdown(f"## 📝 標題：{st.session_state.sel_title}")
@@ -173,7 +191,7 @@ if 'sel_title' in st.session_state:
                 """
                 comment_response = model.generate_content(comment_prompt, safety_settings=safe_settings).text
                 
-                # --- 顯示結果 (強制雙空格換行) ---
+                # --- 顯示結果 (保留格式修復) ---
                 st.subheader("內文：")
                 st.markdown(body_response)
                 
@@ -183,7 +201,6 @@ if 'sel_title' in st.session_state:
                 for c in comments:
                     c = c.strip()
                     if c:
-                        # 這是最重要的格式修正
                         formatted_comments += c + "  \n" 
                 
                 st.markdown(formatted_comments)
