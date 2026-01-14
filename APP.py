@@ -100,4 +100,59 @@ with col2:
     
     st.markdown("---")
     
-    #
+    # 處理標籤邏輯
+    target_tag = ptt_tag.split(" ")[0] # 只抓取 [問題] 這種格式
+    if "隨機" in target_tag:
+        tag_instruction = "標題必須包含 [問題]、[討論] 或 [心得] 等 PTT 常見標籤。"
+    else:
+        tag_instruction = f"⚠️ 嚴格要求：生成的 10 個標題，每一個都必須以「{target_tag}」開頭。"
+
+    if st.button("🚀 生成 5 個標題", use_container_width=True):
+        with st.spinner(f"正在生成 {target_tag} 類型的標題..."):
+            try:
+                prompt = f"""
+                {SYSTEM_INSTRUCTION}
+                主題：{user_topic}
+                語氣：{tone_intensity}
+                
+                {tag_instruction}
+                
+                請發想 10 個標題，一行一個，不要編號。
+                """
+                response = model.generate_content(prompt)
+                titles = response.text.strip().split('\n')
+                st.session_state.candidate_titles = [t.strip() for t in titles if t.strip()][:5]
+            except Exception as e:
+                st.error("生成失敗，請重試。")
+
+# --- 6. 結果顯示區 ---
+if st.session_state.candidate_titles:
+    st.markdown("### 👇 生成結果 (點擊採用)")
+    for i, t in enumerate(st.session_state.candidate_titles):
+        if st.button(t, key=f"btn_{i}", use_container_width=True):
+            st.session_state.sel_title = t
+            st.session_state.candidate_titles = []
+            st.rerun()
+
+# --- 7. 內文撰寫區 ---
+if 'sel_title' in st.session_state:
+    st.divider()
+    st.markdown(f"## 📝 標題：{st.session_state.sel_title}")
+    
+    with st.expander("置入設定 (選填)"):
+        is_promo = st.checkbox("開啟置入")
+        prod_info = st.text_input("產品資訊", "XX診所")
+
+    if st.button("✍️ 撰寫內文"):
+        with st.spinner("撰寫中..."):
+            p = f"""
+            {SYSTEM_INSTRUCTION}
+            標題：{st.session_state.sel_title}
+            主題：{user_topic}
+            語氣：{tone_intensity}
+            任務：
+            1. 內文 (150字，第一人稱，口語化)
+            2. 回文 (10則，嚴格遵守 推| 噓| →| 格式)
+            """
+            if is_promo: p += f"\n【特殊任務】：請在回文中自然置入推薦「{prod_info}」。"
+            st.markdown(model.generate_content(p).text)
