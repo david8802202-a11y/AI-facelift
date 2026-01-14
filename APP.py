@@ -21,7 +21,7 @@ genai.configure(api_key=api_key)
 
 # --- 3. 直球對決：指定使用 gemini-1.5-flash ---
 # 這是目前 Google 最穩、免費額度最高的模型
-MODEL_NAME = "gemini-1.5-flash"
+MODEL_NAME = "models/gemini-2.0-flash')"
 
 st.write(f"正在嘗試連線到模型：**{MODEL_NAME}** ...")
 
