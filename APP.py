@@ -4,11 +4,11 @@ import os
 import random
 
 # --- 1. 設定頁面 ---
-st.set_page_config(page_title="PTT/Dcard 文案產生器 (V37 真人短文版)", page_icon="🗣️")
+st.set_page_config(page_title="PTT/Dcard 文案產生器 (V38 換行修復版)", page_icon="🗣️")
 
 api_key = st.secrets.get("GOOGLE_API_KEY")
 
-st.title("🗣️ PTT/Dcard 文案產生器 (V37 真人短文版)")
+st.title("🗣️ PTT/Dcard 文案產生器 (V38 換行修復版)")
 
 if not api_key:
     st.error("❌ 找不到 API Key！")
@@ -48,7 +48,6 @@ with st.sidebar:
 model = genai.GenerativeModel(selected_model_name)
 
 # --- 4. 餵入真實範文 (Few-Shot Prompting) ---
-# 這些是從您提供的檔案中提取的真實語氣
 REAL_EXAMPLES = """
 【參考範文 1】：
 標題：[討論] 韓版電波真的是平替?
@@ -168,7 +167,7 @@ if 'sel_title' in st.session_state:
                 "{body_response}"
                 
                 【回文格式】：
-                1. 每一行開頭必須是 `推|`。
+                1. 每一行開頭必須是 `推|`、`噓|` 或 `→|`。
                 2. **不要**有 ID。
                 3. 內容要簡短、像真人 (例如：真的...、笑死、+1)。
                 {f"【置入】：請在其中 1 則回文自然提到「{prod_info}」，不要太硬。" if is_promo else ""}
@@ -177,7 +176,8 @@ if 'sel_title' in st.session_state:
                 
                 # --- 顯示結果 (強制格式處理) ---
                 st.subheader("內文：")
-                st.write(body_response) # 使用 write 自動換行比較自然
+                # ⬇️ 這裡修正了：強制將 \n 換成 Markdown 的換行符號
+                st.markdown(body_response.replace("\n", "  \n")) 
                 
                 st.subheader("回文：")
                 comments = comment_response.strip().split('\n')
@@ -185,10 +185,9 @@ if 'sel_title' in st.session_state:
                 for c in comments:
                     c = c.strip()
                     if c:
-                        # 再次確保只有合格的行被顯示
-                        if any(x in c for x in ["推|"]):
+                        if any(x in c for x in ["推|", "噓|", "→|"]):
                              formatted_comments += c + "  \n"
-                        elif len(c) > 2: # 沒符號但有內容，補箭頭
+                        elif len(c) > 2: 
                              formatted_comments += f"→| {c}  \n"
 
                 st.markdown(formatted_comments)
