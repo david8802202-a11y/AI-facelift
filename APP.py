@@ -149,4 +149,82 @@ if st.button("🚀 生成 5 個新標題 (自動過濾重複)"):
         st.warning("請輸入主題！")
         st.stop()
         
-    with st.spinner(f'AI 正在避開 {len(blacklist_titles)}
+    with st.spinner(f'AI 正在避開 {len(blacklist_titles)} 筆重複標題...'):
+        try:
+            prompt = f"""
+            {SYSTEM_INSTRUCTION}
+            主題：{user_topic}
+            語氣：{tone_intensity}
+            
+            請發想 10 個 PTT/Dcard 風格標題。
+            要求：
+            1. 標題要吸睛，不要有編號。
+            2. 嚴格避開太像農場文的標題。
+            
+            直接列出，一行一個。
+            """
+            response = model.generate_content(prompt)
+            raw_titles = response.text.strip().split('\n')
+            
+            clean_titles = []
+            for t in raw_titles:
+                t = t.strip()
+                if not t: continue
+                # 檢查是否用過或在黑名單
+                if t in st.session_state.used_titles: continue
+                if t in blacklist_titles: continue
+                clean_titles.append(t)
+            
+            st.session_state.candidate_titles = clean_titles[:5]
+            
+            if len(clean_titles) < 5:
+                st.warning(f"過濾重複後剩 {len(clean_titles)} 個。")
+                
+        except Exception as e:
+            st.error(f"生成失敗：{e}")
+
+# --- 9. 標題互動區 ---
+if st.session_state.candidate_titles:
+    st.subheader("👇 點擊「採用」以生成內文 (該標題將不再出現)")
+    for i, title in enumerate(st.session_state.candidate_titles):
+        c1, c2 = st.columns([0.85, 0.15])
+        with c1: st.code(title, language=None)
+        with c2:
+            if st.button("✨ 採用", key=f"btn_{i}"):
+                st.session_state.selected_title_for_content = title
+                st.session_state.used_titles.add(title)
+                st.session_state.candidate_titles.pop(i)
+                st.rerun()
+else:
+    st.info("👈 請點擊左上方按鈕生成標題")
+
+# --- 10. 內文生成區 ---
+if 'selected_title_for_content' in st.session_state:
+    target_title = st.session_state.selected_title_for_content
+    st.divider()
+    st.markdown(f"### 📝 正在撰寫：{target_title}")
+    
+    with st.expander("置入設定 (選填)"):
+        is_promotion = st.checkbox("開啟置入")
+        product_info = st.text_input("產品資訊", value="營養師輕食魚油")
+
+    if st.button("開始撰寫內文與回文"):
+        with st.spinner('撰寫中...'):
+            try:
+                content_prompt = f"""
+                {SYSTEM_INSTRUCTION}
+                標題：{target_title}
+                主題：{user_topic}
+                語氣：{tone_intensity}
+                
+                任務：
+                1. 內文 (150-200字，第一人稱，分段換行，口語化)
+                2. 回文 (10則，嚴格遵守 推| 噓| →| 格式)
+                """
+                if is_promotion:
+                    content_prompt += f"\n【置入任務】：在回文中自然推薦「{product_info}」。"
+                
+                response = model.generate_content(content_prompt)
+                st.markdown(response.text)
+            except Exception as e:
+                st.error(str(e))
