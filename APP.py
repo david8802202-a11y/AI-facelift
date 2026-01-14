@@ -3,150 +3,140 @@ import google.generativeai as genai
 import random
 import re
 
-# --- 1. 設定頁面 ---
-st.set_page_config(page_title="PTT/Dcard 文案產生器 (V53 終極修正版)", page_icon="⚖️")
-
+# --- 1. 頁面設定 ---
+st.set_page_config(page_title="PTT 文案產生器 V54", page_icon="⚖️")
 api_key = st.secrets.get("GOOGLE_API_KEY")
-st.title("⚖️ PTT/Dcard 文案產生器 (V53)")
 
 if not api_key:
-    st.error("❌ 找不到 API Key！")
+    st.error("❌ 找不到 API Key")
     st.stop()
 
 genai.configure(api_key=api_key)
 
-# --- 2. 核心子題庫 (確保內容不跑掉) ---
-SUBTOPICS = {
-    "💉 針劑/微整": ["肉毒瘦臉", "玻尿酸補淚溝", "舒顏萃", "水光針心得"],
-    "⚡ 電音波/雷射": ["鳳凰電波", "海芙音波", "皮秒雷射", "索夫波"],
-    "🏥 醫美診所/黑幕": ["諮詢師一直推銷", "診所價格水很深", "醫生技術好壞", "醫美糾紛"],
-    "🔪 整形手術": ["隆乳手術心得", "隆鼻變納美人", "抽脂後遺症", "割雙眼皮失敗"],
-    "✍️ 自訂主題": ["醫美討論"]
+# --- 2. 深度結構化資料庫 (來自您的 8 個檔案) ---
+DB = {
+    "💉 針劑/微整": {
+        "topics": ["玻尿酸填補", "肉毒瘦臉", "降解酶凹陷", "耳垂招財針"],
+        "examples": [
+            {"title": "[討論] 針劑醫美根本是無底洞...算完年費嚇死人", "content": "以前覺得手術貴，結果針劑才是錢坑。肉毒玻尿酸一年維護費竟然要10幾萬！", "cmts": ["推|微整就是訂閱制", "推|這就是溫水煮青蛙", "推|算完不敢面對財富自由了"]},
+            {"title": "[討論] 聽說打降解酶會連自己的肉一起溶掉?", "content": "降解酶會連自體透明質酸一起溶掉，導致皮膚變乾、真皮層萎縮凹陷變成一個坑？", "cmts": ["推|會凹+1 降解酶敵我不分", "推|聽說皮膚變得很薄很皺", "推|看過有人打完淚溝直接凹一塊"]}
+        ]
+    },
+    "⚡ 電音波/雷射": {
+        "topics": ["鳳凰電波", "韓版電波平替", "皮秒雷射", "海芙音波"],
+        "examples": [
+            {"title": "[討論] 韓版電波真的是平替?還是給窮人打的安慰劑", "content": "美國電波漲太兇，診所推韓版價格1/3。到底是真平替，還是打心安的安慰劑?", "cmts": ["推|打過玩美 真的就是安慰劑", "推|鳳凰貴在專利，韓版像熱石按摩", "推|想逆齡還是乖乖刷卡打鳳凰"]}
+        ]
+    },
+    "🏥 醫美診所/黑幕": {
+        "topics": ["諮詢師話術", "審美觀喪失", "海外醫美廣告", "價格不透明"],
+        "examples": [
+            {"title": "[討論] 醫美做久真的會喪失對正常人長相的判斷力嗎?", "content": "審美觀壞掉了，看路人都是瑕疵。是不是忘記正常人類該有的樣子了?", "cmts": ["推|醫美成癮症會無限放大瑕疵", "推|看諮詢師整張臉饅化了還覺得美", "推|這就是為什麼路上複製人越來越多"]}
+        ]
+    },
+    "🔪 整形手術": {
+        "topics": ["隆乳手術心得", "隆鼻副作用", "抽脂術後凹凸", "雙眼皮失敗"],
+        "examples": [
+            {"title": "[討論] 男生說喜歡自然美女 其實根本分不出來吧", "content": "直男討厭的是失敗的整形，只要沒變蛇精臉他們都覺得是天然。", "cmts": ["推|連淡妝都分不出來了", "推|只要漂亮順眼就是天然", "推|貴的醫美就是讓你變美但看不出來"]}
+        ]
+    }
 }
 
-# --- 3. 語氣資料庫 (拿掉具體療程，防止 AI 亂抄內容) ---
-TONE_EXAMPLES = [
-    "標題：[討論] 某療程根本是無底洞...算完錢嚇死人",
-    "標題：[討論] 聽說某個手術會連自己的肉一起壞掉?",
-    "標題：[問題] 為了面相招財去打某個針劑?"
-]
-
-# --- 4. 模型抓取 ---
+# --- 3. 模型連線 ---
 @st.cache_resource
-def get_working_model():
+def get_safe_model():
     try:
-        models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        # 優先順序：Pro > Flash > Gemma
-        for m_name in ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-pro", "gemma"]:
-            for m in models:
-                if m_name in m: return m
-        return models[0]
-    except: return "models/gemini-pro"
+        return genai.GenerativeModel("gemini-1.5-flash") # 使用最穩定的模型
+    except:
+        return genai.GenerativeModel("gemini-pro")
 
-current_model = get_working_model()
-model = genai.GenerativeModel(current_model)
+model = get_safe_model()
 
-# --- 5. 主介面 ---
-if 'candidate_titles' not in st.session_state: st.session_state.candidate_titles = []
-
-st.sidebar.info(f"運作中模型：{current_model}")
+# --- 4. 主介面 ---
+if 'titles' not in st.session_state: st.session_state.titles = []
 
 col1, col2 = st.columns(2)
 with col1:
-    ptt_tag = st.selectbox("標籤：", ["[討論]", "[問題]", "[心得]", "[閒聊]", "[黑特]"])
-    topic_category = st.selectbox("分類：", list(SUBTOPICS.keys()))
-    
-    # 決定核心主題
-    if "自訂" in topic_category:
-        user_topic = st.text_input("輸入主題：", "韓版電波是智商稅嗎？")
-        final_topic = user_topic
-    else:
-        random_sub = random.choice(SUBTOPICS[topic_category])
-        final_topic = random_sub
-
+    tag = st.selectbox("標籤：", ["[討論]", "[問題]", "[心得]", "[閒聊]", "[黑特]"])
+    cat = st.selectbox("議題：", list(DB.keys()))
 with col2:
-    tone_intensity = st.select_slider("強度：", ["溫和", "熱烈", "炎上"], value="熱烈")
+    tone = st.select_slider("強度：", ["溫和", "熱烈", "炎上"], value="熱烈")
 
 st.markdown("---")
-imported_text = st.text_area("📝 匯入網友原文 (若有，AI會以此核心改寫)：", height=100)
+imported = st.text_area("匯入原文 (若有，AI 會以此為核心改寫)：", height=80)
 
-# --- 6. 生成標題 ---
+# --- 5. 生成標題 ---
 if st.button("🚀 生成 5 個標題", use_container_width=True):
-    # 決定素材
-    subject = imported_text if len(imported_text.strip()) > 5 else final_topic
+    # 主題鎖定邏輯
+    core_topic = imported.strip() if imported.strip() else random.choice(DB[cat]["topics"])
     
-    prompt = f"""你是一個 PTT 醫美版資深鄉民。
-    【語氣參考】：{TONE_EXAMPLES}
+    # 只抽取同分類的參考
+    ref = DB[cat]["examples"][0]["title"]
     
-    【任務】：針對「{subject}」發想 5 個標題。
-    【規則】：
-    1. **內容鎖定**：你必須只寫關於「{subject}」的內容，禁止寫到其他手術或雷射！
-    2. **格式要求**：不要包含 [討論] 或 [問題] 標籤。
-    3. **風格**：直白、口語、要有真人感。禁止冒號。
+    prompt = f"""你是 PTT 醫美版鄉民。
+    請參考這個標題的語氣：{ref}
     
-    直接列出 5 個純文字標題，一行一個。"""
-    
-    try:
-        response = model.generate_content(prompt).text.strip().split('\n')
-        clean_titles = []
-        for t in response:
-            t = re.sub(r'^[\d\-\.\s\[\]討論問題心得閒聊黑特]+', '', t).strip() # 強制清洗所有標籤
-            if t: clean_titles.append(f"{ptt_tag} {t}") # Python 強制補上正確標籤
-        st.session_state.candidate_titles = clean_titles[:5]
-    except:
-        st.error("生成失敗，請再按一次")
+    任務：針對「{core_topic}」發想 5 個新標題。
+    規則：
+    1. 必須是「{tag} 內容」。內容鎖定在「{core_topic}」，禁止提到其他。
+    2. 禁止冒號、禁止編號、禁止 Emoji。
+    一行一個標題。"""
 
-# --- 7. 顯示標題與撰寫內文 ---
-if st.session_state.candidate_titles:
-    st.markdown("### 👇 點擊標題採用")
-    for i, t in enumerate(st.session_state.candidate_titles):
+    try:
+        res = model.generate_content(prompt).text.strip().split('\n')
+        # 極簡清洗
+        st.session_state.titles = [f"{tag} {re.sub(r'^.*?\]', '', t).strip()}" for t in res if t.strip()][:5]
+    except:
+        st.error("連線超時，請再按一次按鈕")
+
+# --- 6. 選擇與撰寫 ---
+if st.session_state.titles:
+    st.markdown("### 👇 點擊標題")
+    for i, t in enumerate(st.session_state.titles):
         if st.button(t, key=f"t_{i}", use_container_width=True):
-            st.session_state.sel_title = t
-            st.session_state.candidate_titles = []
+            st.session_state.sel = t
+            st.session_state.titles = []
             st.rerun()
 
-if 'sel_title' in st.session_state:
+if 'sel' in st.session_state:
     st.divider()
-    st.subheader(f"📝 標題：{st.session_state.sel_title}")
+    st.subheader(f"📝 {st.session_state.sel}")
     
-    if st.button("✍️ 撰寫內文與回文"):
+    if st.button("✍️ 撰寫內文"):
         with st.spinner("撰寫中..."):
+            # 選取參考範本
+            match = DB[cat]["examples"][0]
+            
             prompt = f"""你是一個 PTT 鄉民。
-            標題：{st.session_state.sel_title}
-            內容主題：{imported_text if imported_text else final_topic}
-            語氣強度：{tone_intensity}
+            模仿這篇範文的口語感：
+            標題：{match['title']}
+            內文：{match['content']}
+            回文：{match['cmts'][0]}
             
-            【內文要求】：
-            1. 100-150 字，第一人稱。
-            2. **內容鎖定**：必須針對標題寫。如果是手術就寫手術，不要寫到電波！
-            3. 禁止問候語。
+            現在請寫：
+            標題：{st.session_state.sel}
+            語氣：{tone}
+            內容素材：{imported if imported else cat}
             
-            【回文要求】：
-            1. 給出 8 則回文。
-            2. 語氣要像酸民、直白、簡短。
-            3. **禁止使用問號 (?) 結尾**。鄉民是來噴人的，不是來問問題的。
-            4. 內容要具體，提到如「盤子」、「智商稅」、「饅化」、「推」、「爛死」。
-            
-            格式：每行一則回文，內容開頭不需要 推/噓。"""
+            要求：
+            1. 內文 120 字，口語化，禁止問候。
+            2. 內容必須跟標題一致。標題是手術就寫手術，禁止寫電波。
+            3. 回文 8 則。格式「推|內容」。禁止問號結尾。
+            分段輸出。"""
             
             try:
                 raw_res = model.generate_content(prompt).text
-                
-                # 簡單分段處理
+                # 簡單分段
                 st.subheader("內文：")
-                # 嘗試過濾掉 AI 的標頭
-                clean_body = re.sub(r'^好的.*?：', '', raw_res, flags=re.S).strip()
-                st.write(clean_body.split("\n\n")[0].replace("\n", "  \n"))
+                body = raw_res.split("回文")[0].replace("內文", "").strip()
+                st.write(body.replace("\n", "  \n"))
                 
                 st.subheader("回文：")
-                # 抓取最後 8 行
-                cmt_lines = clean_body.split("\n")[-10:]
-                tags = ["推", "推", "→", "→", "噓", "推"]
-                for line in cmt_lines:
-                    line = re.sub(r'^[推噓→\|:\d\.-]+', '', line).strip()
-                    if len(line) > 2 and "標題" not in line:
-                        # 強制去掉問號
-                        line = line.replace("?", "").replace("？", "")
-                        st.write(f"{random.choice(tags)}| {line}")
+                cmts = raw_res.split("回文")[-1].strip().split("\n")
+                prefix = ["推", "推", "→", "→", "噓"]
+                for c in cmts:
+                    c = re.sub(r'^[推噓→\|:\s\d\.-]+', '', c).strip()
+                    if len(c) > 2:
+                        st.write(f"{random.choice(prefix)}| {c.replace('?', '')}")
             except:
-                st.error("撰寫失敗，請重新點擊按鈕")
+                st.error("撰寫失敗，請重新按按鈕")
