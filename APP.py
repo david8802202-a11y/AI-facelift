@@ -2,7 +2,7 @@ import streamlit as st
 import google.generativeai as genai
 
 # --- 1. 設定頁面 ---
-st.set_page_config(page_title="PTT醫美文案產生器 (自動導航版)", page_icon="💉")
+st.set_page_config(page_title="PTT醫美文案產生器 (自選模型版)", page_icon="💉")
 
 # --- 2. 讀取 API Key ---
 api_key = st.secrets.get("GOOGLE_API_KEY")
@@ -11,71 +11,58 @@ if not api_key:
     st.error("❌ 找不到 API Key！請檢查 Streamlit 的 Secrets 設定。")
     st.stop()
 
-# --- 3. 設定 Google AI 與 自動尋找模型 ---
 genai.configure(api_key=api_key)
 
-# 定義一個函數來自動找模型
-def get_auto_model():
+# --- 3. 獲取可用模型清單 (解決所有型號錯誤的終極解法) ---
+@st.cache_resource # 快取起來，不用每次都重新抓
+def get_available_models():
     try:
-        # 1. 問 Google 有哪些模型
-        available_models = list(genai.list_models())
-        
-        # 2. 篩選出可以「生成內容」的模型
-        valid_models = [m for m in available_models if 'generateContent' in m.supported_generation_methods]
-        
-        target_model_name = None
-        
-        # 3. 優先尋找含有 'flash' 的模型 (速度快、額度高)
-        for m in valid_models:
-            if 'flash' in m.name and '1.5' in m.name:
-                target_model_name = m.name
-                break
-        
-        # 4. 如果沒找到 Flash，找 Pro
-        if not target_model_name:
-            for m in valid_models:
-                if 'pro' in m.name:
-                    target_model_name = m.name
-                    break
-        
-        # 5. 如果還是沒有，就隨便抓第一個能用的
-        if not target_model_name and valid_models:
-            target_model_name = valid_models[0].name
-            
-        return target_model_name
-        
+        model_list = []
+        for m in genai.list_models():
+            if 'generateContent' in m.supported_generation_methods:
+                model_list.append(m.name)
+        # 排序：讓 flash 系列排前面 (比較快且便宜)
+        model_list.sort(key=lambda x: 'flash' not in x)
+        return model_list
     except Exception as e:
-        return None
+        return []
 
-# 執行自動尋找
-with st.spinner('正在自動搜尋最佳模型...'):
-    model_name = get_auto_model()
+available_models = get_available_models()
 
-# 建立模型物件
-if model_name:
-    try:
-        model = genai.GenerativeModel(model_name)
-    except Exception as e:
-        st.error(f"模型建立失敗：{e}")
-        st.stop()
-else:
-    # 萬一真的連不上 List API，最後一搏使用備用名稱
-    model = genai.GenerativeModel('gemini-pro')
-    model_name = "gemini-pro (備用模式)"
+# --- 4. 側邊欄：模型選擇器 ---
+with st.sidebar:
+    st.header("⚙️ 系統設定")
+    if available_models:
+        selected_model_name = st.selectbox(
+            "🤖 請選擇 AI 模型：",
+            available_models,
+            index=0
+        )
+        st.success(f"目前使用：{selected_model_name}")
+        st.caption("💡 建議優先選含 'flash' 的模型，速度快且免費額度高。")
+    else:
+        st.error("⚠️ 無法獲取模型清單，請檢查 API Key 權限。")
+        # 如果真的抓不到，給一個備用預設值
+        selected_model_name = "models/gemini-1.5-flash"
 
-# --- 4. 系統提示詞 ---
+# 設定模型
+try:
+    model = genai.GenerativeModel(selected_model_name)
+except:
+    pass # 等按下按鈕再報錯
+
+# --- 5. 系統提示詞 ---
 SYSTEM_INSTRUCTION = """
 你是一個精通台灣 PTT (批踢踢實業坊) 與 Dcard 文化的資深鄉民，同時也是專業的醫美行銷文案寫手。
 你的任務是根據使用者的需求，撰寫極具吸引力、討論度高的文章。
 
 【核心原則】：
 1. **真實感**：不要像機器人，要有「人味」，適度使用語助詞、表情符號(XD, QQ)，以及真實的情緒發洩。
-2. **多樣性**：當要求生成多個標題時，務必從「不同切角」切入（例如：金錢觀、審美觀、術後痛苦、八卦、技術面、兩性關係），嚴禁重複類似的主題或句型。
+2. **多樣性**：當要求生成多個標題時，務必從「不同切角」切入（例如：金錢觀、審美觀、術後痛苦、八卦、技術面、兩性關係），嚴禁重複類似的主題。
 """
 
-# --- 5. 網頁介面 ---
+# --- 6. 主畫面 ---
 st.title("💉 PTT/Dcard 醫美文案生成器")
-st.caption(f"✅ 目前連線模型：{model_name}")
 
 # 區塊 1: 話題與強度設定
 st.header("步驟 1：設定參數")
@@ -113,7 +100,7 @@ if 'generated_titles' not in st.session_state:
 
 # 按鈕：生成標題
 if st.button("🚀 生成 5 個標題"):
-    with st.spinner(f'AI 正在發想【{tone_intensity}】風格的標題...'):
+    with st.spinner(f'AI ({selected_model_name}) 正在發想標題...'):
         try:
             prompt = f"""
             {SYSTEM_INSTRUCTION}
@@ -133,7 +120,7 @@ if st.button("🚀 生成 5 個標題"):
         except Exception as e:
             st.error(f"生成失敗：{e}")
             if "429" in str(e):
-                st.info("⚠️ 額度已滿，請稍等一分鐘後再試。")
+                st.info("⚠️ 額度已滿，請換一個模型（左側選單）或稍等再試。")
 
 # 步驟 2: 選擇並生成內容
 if st.session_state.generated_titles:
