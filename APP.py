@@ -2,13 +2,15 @@ import streamlit as st
 import google.generativeai as genai
 import os
 import random
+import json
+import requests
 
 # --- 1. 設定頁面 ---
-st.set_page_config(page_title="PTT/Dcard 文案產生器 (V38 換行修復版)", page_icon="🗣️")
+st.set_page_config(page_title="PTT/Dcard 文案產生器 (V42 全方位仿寫版)", page_icon="🧬")
 
 api_key = st.secrets.get("GOOGLE_API_KEY")
 
-st.title("🗣️ PTT/Dcard 文案產生器 (V38 換行修復版)")
+st.title("🧬 PTT/Dcard 文案產生器 (V42 全方位仿寫版)")
 
 if not api_key:
     st.error("❌ 找不到 API Key！")
@@ -16,12 +18,115 @@ if not api_key:
 
 genai.configure(api_key=api_key)
 
-# --- 2. 取得模型清單 (手動選擇最保險) ---
+# --- 2. 內建完整資料庫 (含回文) ---
+DEFAULT_DATABASE = [
+    {
+        "title": "[討論] 聽說打降解酶會連自己的肉一起溶掉?",
+        "content": "朋友前兩年在淚溝打了一支玻尿酸，最近覺得眼下這兩條毛毛蟲越來越明顯。諮詢醫生說要先降解，但爬文看到很多人說降解酶會連自體的透明質酸一起溶掉，導致皮膚變超乾、甚至凹陷？想問版上有沒有人打過？",
+        "comments": [
+            "推|看過有人打完淚溝直接凹一塊 養了半年才長回來一點點",
+            "推|這很看醫生控制濃度的技術",
+            "推|會凹+1 降解酶敵我不分的",
+            "推|千萬不要一次打太多單位",
+            "推|聽說皮膚變得很薄很皺 像老太太的皮"
+        ]
+    },
+    {
+        "title": "[討論] 針劑醫美根本是無底洞...算完年費嚇死人",
+        "content": "以前覺得動手術貴，結果記帳發現針劑才是錢坑。肉毒除皺+瘦小臉一年快2萬，玻尿酸半年消一半又要補。算下來一張臉每年的「維護費」竟然要10幾萬！這根本是訂閱制，沒續費就打回原形。",
+        "comments": [
+            "推|真的...微整就是訂閱制 沒續費就打回原形",
+            "推|這就是溫水煮青蛙啊",
+            "推|但不維持又會有焦慮感 已經回不去沒打之前的樣子了",
+            "推|醫生最愛推針劑啊 細水長流",
+            "推|算完不敢面對~這些錢拿去存股早就財富自由了"
+        ]
+    },
+    {
+        "title": "[問題] 為了面相招財去打耳垂玻尿酸?",
+        "content": "朋友天生耳垂薄，長輩說留不住錢，想去打玻尿酸變成招財耳。雖然聽起來迷信，但如果能改運好像也值得？但擔心耳垂神經多會不會超痛？",
+        "comments": [
+            "推|心理作用居多吧 把打針的錢存起來就是招財了XD",
+            "推|看過有人打太大變超級怪",
+            "推|會痛到往生喔...耳朵神經超多 千萬別輕易嘗試",
+            "推|小心打到血管栓塞 耳朵發黑就真的破財了",
+            "推|只能說變漂亮心情好 運氣自然就好XD"
+        ]
+    },
+    {
+        "title": "[討論] 海外醫美一直在脆上曝光價格 台灣無法可管嗎?",
+        "content": "最近滑脆被韓國跟上海的醫美廣告洗版，價格透明連機票都敢PO。反觀台灣受法規限制連折扣都不能講明。政府是不是束手無策？台灣診所只能乖乖被打還要被罰錢，感覺很慘。",
+        "comments": [
+            "推|貪小便宜的就會去那種",
+            "推|難怪現在那麼多人跑國外醫美",
+            "推|如果遇到什麼問題，台灣的比較有法律保障",
+            "推|好奇國外都沒有這種法規嗎?",
+            "推|價格透明有時候也不見得做完不會另外收取其他費用欸"
+        ]
+    },
+    {
+        "title": "[討論] 醫美做久真的會喪失對正常人長相的判斷力嗎?",
+        "content": "自從入了醫美坑，審美觀好像壞掉了。現在看到路人第一眼就是像掃描機一樣看瑕疵：「淚溝好深」、「咀嚼肌太大」。是不是在這個圈子待久了，已經忘記什麼是「正常人類」該有的樣子了？",
+        "comments": [
+            "推|真的會有「醫美成癮症」 容貌焦慮會無限放大瑕疵",
+            "推|我看很多諮詢師整張臉都饅化了 還覺得自己很美XD",
+            "推|這就是為什麼路上複製人越來越多",
+            "推|醫生如果有良心會勸退妳",
+            "推|真的...我現在連看韓劇都在研究女主角哪裡有動XD"
+        ]
+    },
+    {
+        "title": "[討論] 小紅書都在推輪廓固定 到底是什麼新療程?",
+        "content": "滑小紅書一直被「輪廓固定」洗版，說做完臉會變小變精緻。問了台灣診所好像沒這項目，這到底是新技術還是只是玻尿酸換名字包裝？聽說一次要打十幾支針是真的嗎？",
+        "comments": [
+            "推|要拉提緊緻怎麼不打電音波就好",
+            "推|聽說跟基底支撐很像 這個名字不是很久了嗎?",
+            "推|它主要是針對內外輪廓去做一個支撐、拉提跟填補",
+            "推|小紅書都很大陸用語，感覺不太可靠",
+            "推|如果是全臉改善費用一定不便宜"
+        ]
+    },
+    {
+        "title": "[討論] 韓版電波真的是平替?還是那是給窮人打的安慰劑",
+        "content": "美國電波漲太兇，診所狂推韓版電波，價格只要1/3。大家都說CP值高，但我心裡疑問一分錢一分貨，如果效果差不多鳳凰怎麼沒倒？韓版到底是真平替，還是只是打個心安的安慰劑？",
+        "comments": [
+            "推|打過玩美 真的就是安慰劑...",
+            "推|一分錢一分貨 鳳凰痛歸痛",
+            "推|韓版適合25歲左右當保養",
+            "推|鳳凰貴在專利跟那個冷媒噴射技術 韓版真的很像熱石按摩XD",
+            "推|想省錢就打韓版 想逆齡還是乖乖刷卡打鳳凰吧"
+        ]
+    },
+    {
+        "title": "[討論] 男生說喜歡自然美女 其實根本分不出來吧",
+        "content": "常聽到男生說喜歡自然的，結果轉頭狂讚IG網美。但我仔細看那些女生明明都有動，只是做得很高階。是不是對直男來說，只要沒變成蛇精臉，看不出痕跡的統統算天然？",
+        "comments": [
+            "推|真的 連素顏跟淡妝都分不出來了 何況是高階醫美",
+            "推|只要漂亮順眼他們就覺得是天然",
+            "推|這就是金錢的力量 貴的醫美就是讓你變美但看不出來",
+            "推|我縫雙眼皮消腫後 男友還以為我是貼雙眼皮貼變永久的...",
+            "推|很多韓星也是整得超自然 男生還不是愛得要死"
+        ]
+    }
+]
+
+# --- 3. 雲端抓取功能 ---
+@st.cache_data(ttl=600)
+def fetch_remote_data(url):
+    if not url: return []
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            return json.loads(response.text)
+    except:
+        return []
+    return []
+
+# --- 4. 取得模型清單 ---
 @st.cache_resource
 def get_all_models():
     try:
         models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        # 排序：把 1.5-pro 和 1.0-pro 排前面，避開 flash
         def sort_priority(name):
             if "gemini-1.5-pro" in name and "exp" not in name: return 0
             if "gemini-pro" in name: return 1
@@ -33,49 +138,29 @@ def get_all_models():
 
 all_my_models = get_all_models()
 
-# --- 3. 側邊欄：手動選擇模型 ---
+# --- 5. 側邊欄 ---
 with st.sidebar:
-    st.header("⚙️ 模型設定")
-    selected_model_name = st.selectbox("👇 選擇模型 (若失敗請換一個)：", all_my_models, index=0)
+    st.header("⚙️ 設定")
+    selected_model_name = st.selectbox("👇 選擇模型：", all_my_models, index=0)
     
-    if "flash" in selected_model_name:
-        st.warning("⚠️ Flash 模型在您帳號可能會有 404 問題，建議改用 Pro。")
-    elif "2.5" in selected_model_name:
-        st.warning("⚠️ 2.5 版本額度極少 (20次)，容易失敗。")
+    st.divider()
+    st.header("☁️ 資料庫")
+    data_url = st.text_input("JSON 資料網址 (選填)：", placeholder="https://raw.githubusercontent...")
+    
+    final_database = DEFAULT_DATABASE
+    if data_url:
+        remote_data = fetch_remote_data(data_url)
+        if remote_data:
+            final_database = remote_data
+            st.success(f"✅ 雲端資料：{len(final_database)} 篇")
+        else:
+            st.error("❌ 讀取失敗，使用內建資料")
     else:
-        st.success(f"目前使用：{selected_model_name} (推薦)")
+        st.info(f"📚 內建資料：{len(final_database)} 篇")
 
 model = genai.GenerativeModel(selected_model_name)
 
-# --- 4. 餵入真實範文 (Few-Shot Prompting) ---
-REAL_EXAMPLES = """
-【參考範文 1】：
-標題：[討論] 韓版電波真的是平替?
-內文：美國電波實在漲太兇，打一次900發都要快10萬。看到很多診所狂推韓版電波，價格只要1/3。大家都說CP值很高，但我心裡一直有個疑問，一分錢一分貨，如果效果真的差不多，那鳳凰怎麼還沒倒？韓版到底是真平替，還是只是打個心安的安慰劑？
-
-【參考範文 2】：
-標題：[討論] 針劑醫美根本是無底洞
-內文：以前覺得動手術貴，結果記帳發現針劑才是錢坑。肉毒一年要2-3次，玻尿酸半年消一半又要補。算下來一張臉每年的「維護費」竟然要10幾萬！而且是每年都要付！大家有算過自己的「臉部年費」嗎？
-
-【參考範文 3】：
-標題：[討論] 男生說喜歡自然美女 其實根本分不出來吧
-內文：常聽到男生說「不喜歡女生整形」，結果轉頭狂讚IG網美。但我仔細看，那些女生明明都有動過啊！鼻子微調、額頭補脂...只是做得很高階而已。是不是對直男來說，只要沒有變成蛇精臉，看不出明顯痕跡的統統算天然？
-"""
-
-# --- 5. 設定指令 ---
-BASE_PERSONA = f"""
-你是一個台灣 PTT (Facelift版) 的資深鄉民。
-請參考以下【真實範文】的語氣、長度與用詞風格：
-{REAL_EXAMPLES}
-
-**核心要求**：
-1. **口語化**：像跟朋友聊天，不要有「首先、總之」這種 AI 轉折詞。
-2. **字數**：**嚴格控制在 100-120 字左右**，短促有力。
-3. **情緒**：要有真實的困惑、懷疑或抱怨 (例如：殺毀、真的假的、==)。
-4. **格式**：第一人稱，不要開頭打招呼。
-"""
-
-# 安全設定 (全開)
+# 安全設定
 safe_settings = [
     {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
     {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
@@ -105,24 +190,29 @@ with col2:
     
     st.markdown("---")
     if st.button("🚀 生成 5 個標題", use_container_width=True):
-        with st.spinner(f"正在使用 {selected_model_name} 模仿鄉民..."):
+        
+        # 隨機抽取 3 個標題範例
+        sample_size = min(len(final_database), 3)
+        examples = random.sample(final_database, sample_size)
+        example_text = "\n".join([f"- {ex['title']}" for ex in examples])
+        
+        with st.spinner(f"正在參考資料庫..."):
             try:
                 target_tag = ptt_tag.split(" ")[0] if "隨機" not in ptt_tag else "[問題]"
                 prompt = f"""
-                {BASE_PERSONA}
-                任務：發想 10 個 PTT 標題。
-                嚴格限制：
-                1. 必須以「{target_tag}」開頭。
-                2. 字數(不含標籤)控制在 16~20 字。
-                3. 主題：{user_topic}
-                4. 語氣：{tone_intensity}
+                你是一個 PTT 醫美版資深鄉民。
+                請參考以下【真實資料庫標題】的下標邏輯：
+                {example_text}
+                
+                任務：為主題「{user_topic}」發想 10 個新標題。
+                限制：以「{target_tag}」開頭，字數 16~22 字 (不含標籤)，語氣：{tone_intensity}。
                 一行一個，不要編號。
                 """
                 response = model.generate_content(prompt, safety_settings=safe_settings)
                 titles = response.text.strip().split('\n')
                 st.session_state.candidate_titles = [t.strip() for t in titles if t.strip()][:5]
             except Exception as e:
-                st.error("❌ 生成失敗，請換個模型試試。")
+                st.error("生成失敗")
                 st.code(str(e))
 
 # --- 7. 結果與內文區 ---
@@ -142,41 +232,47 @@ if 'sel_title' in st.session_state:
         is_promo = st.checkbox("開啟置入")
         prod_info = st.text_input("產品資訊", "XX診所")
 
-    if st.button("✍️ 撰寫內文 (真人短文模式)"):
-        with st.spinner("撰寫中..."):
+    if st.button("✍️ 撰寫內文 (全方位仿寫模式)"):
+        with st.spinner("正在模仿真實鄉民口吻..."):
             try:
-                # --- 第一步：寫內文 (100字左右) ---
-                body_prompt = f"""
-                {BASE_PERSONA}
-                標題：{st.session_state.sel_title}
-                主題：{user_topic}
-                語氣：{tone_intensity}
+                # 隨機抽取 1 篇完整文章 (含回文) 當作指導
+                ref_article = random.choice(final_database)
+                ref_comments_str = "\n".join(ref_article.get("comments", []))
                 
-                任務：寫一篇 PTT 內文。
-                【非常重要】：
-                1. **字數控制在 100-120 字之間**，不要太長。
-                2. 像在用手機打字，句子短一點。
-                3. 不要開頭問好，不要結尾總結。
+                # --- 1. 寫內文 ---
+                body_prompt = f"""
+                你是一個 PTT 醫美版鄉民。
+                請模仿這篇【真實範文】的風格寫作：
+                標題：{ref_article['title']}
+                內文：{ref_article['content']}
+                
+                現在請寫一篇關於「{user_topic}」的文章。
+                標題：{st.session_state.sel_title}
+                要求：字數約 100-150 字，第一人稱，口語化 (真的...、==)。
                 """
                 body_response = model.generate_content(body_prompt, safety_settings=safe_settings).text
                 
-                # --- 第二步：寫回文 (口語化) ---
+                # --- 2. 寫回文 (加入真實回文參考) ---
                 comment_prompt = f"""
-                {BASE_PERSONA}
-                針對這篇文章生成 8 則回文：
-                "{body_response}"
+                你是一個 PTT 鄉民。
+                請參考以下【真實回文風格】，生成針對這篇文章的 8 則留言：
                 
-                【回文格式】：
-                1. 每一行開頭必須是 `推|`。
-                2. **不要**有 ID。
-                3. 內容要簡短、像真人 (例如：真的...、笑死、+1)。
-                {f"【置入】：請在其中 1 則回文自然提到「{prod_info}」，不要太硬。" if is_promo else ""}
+                【真實回文參考】：
+                {ref_comments_str}
+                
+                【你的任務】：
+                針對文章："{body_response}"
+                生成 8 則類似風格的回文。
+                要求：
+                1. 每行開頭必須是 `推|`。
+                2. 不要 ID。
+                3. 語氣要像上面的參考範例一樣酸、簡短或中肯。
+                {f"【置入】：請在 1 則回文自然提到「{prod_info}」。" if is_promo else ""}
                 """
                 comment_response = model.generate_content(comment_prompt, safety_settings=safe_settings).text
                 
-                # --- 顯示結果 (強制格式處理) ---
+                # --- 顯示 ---
                 st.subheader("內文：")
-                # ⬇️ 這裡修正了：強制將 \n 換成 Markdown 的換行符號
                 st.markdown(body_response.replace("\n", "  \n")) 
                 
                 st.subheader("回文：")
@@ -193,5 +289,5 @@ if 'sel_title' in st.session_state:
                 st.markdown(formatted_comments)
                 
             except Exception as e:
-                st.error("❌ 撰寫失敗")
+                st.error("撰寫失敗")
                 st.code(str(e))
