@@ -4,11 +4,11 @@ import os
 import random
 
 # --- 1. 設定頁面 ---
-st.set_page_config(page_title="PTT/Dcard 文案產生器 (V30 格式終極版)", page_icon="📝")
+st.set_page_config(page_title="PTT/Dcard 文案產生器 (V31 解鎖版)", page_icon="🔓")
 
 api_key = st.secrets.get("GOOGLE_API_KEY")
 
-st.title("📝 PTT/Dcard 文案產生器 (V30 格式終極版)")
+st.title("🔓 PTT/Dcard 文案產生器 (V31 安全解鎖版)")
 
 if not api_key:
     st.error("❌ 找不到 API Key！")
@@ -40,7 +40,30 @@ valid_model_name = find_working_model()
 if not valid_model_name:
     st.error("❌ 無法連接任何模型。")
     st.stop()
+    
+# 建立模型時，不需在這裡設 safety_settings，我們在 generate_content 時設
 model = genai.GenerativeModel(valid_model_name)
+
+# --- 關鍵修正：定義「全開」的安全設定 ---
+# 這能防止 AI 因為提到「醫美失敗」、「黑特」就被過濾掉
+safe_settings = [
+    {
+        "category": "HARM_CATEGORY_HARASSMENT",
+        "threshold": "BLOCK_NONE"
+    },
+    {
+        "category": "HARM_CATEGORY_HATE_SPEECH",
+        "threshold": "BLOCK_NONE"
+    },
+    {
+        "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+        "threshold": "BLOCK_NONE"
+    },
+    {
+        "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+        "threshold": "BLOCK_NONE"
+    },
+]
 
 # --- 3. 讀取歷史風格 ---
 reference_titles = []
@@ -63,7 +86,7 @@ SYSTEM_INSTRUCTION = """
 2. **情緒化**：符合PTT真實網友回文。
 3. **格式要求**：
    - 內文：第一人稱，像在跟朋友聊天。
-   - 回文：**每一行回文必須以 `推|`開頭**，後面接內容，不要有帳號。
+   - 回文：**每一行回文必須以 `推|`、`噓|` 或 `→|` 開頭**，後面接內容，不要有帳號。
 """
 
 # --- 5. 主介面 ---
@@ -103,11 +126,16 @@ with col2:
                 4. 語氣：{tone_intensity}
                 直接列出，一行一個，不要編號。
                 """
-                response = model.generate_content(prompt)
+                # 加入 safety_settings
+                response = model.generate_content(prompt, safety_settings=safe_settings)
                 titles = response.text.strip().split('\n')
                 st.session_state.candidate_titles = [t.strip() for t in titles if t.strip()][:5]
             except Exception as e:
-                st.error("生成失敗，請重試。")
+                # 這裡改為印出真實錯誤，不再只顯示「失敗」
+                st.error("❌ 生成失敗！原因如下：")
+                st.code(str(e))
+                if "FinishReason.SAFETY" in str(e):
+                    st.warning("💡 這是被 Google 的安全過濾器擋下了，因為話題可能涉及醫療風險或負面攻擊。")
 
 # --- 6. 結果顯示區 ---
 if st.session_state.candidate_titles:
@@ -129,49 +157,53 @@ if 'sel_title' in st.session_state:
 
     if st.button("✍️ 撰寫內文 (去 AI 感模式)"):
         with st.spinner("正在用鄉民口吻寫作..."):
-            
-            # --- 分兩段生成，確保格式不會亂 ---
-            # 1. 先生成內文
-            body_prompt = f"""
-            {SYSTEM_INSTRUCTION}
-            標題：{st.session_state.sel_title}
-            主題：{user_topic}
-            語氣：{tone_intensity}
-            
-            任務：請寫一篇 PTT 內文 (約150-200字)。
-            要求：第一人稱，口語化，不要有開頭問候，不要結尾總結，就像隨手打的。
-            """
-            body_response = model.generate_content(body_prompt).text
-            
-            # 2. 再生成回文
-            comment_prompt = f"""
-            {SYSTEM_INSTRUCTION}
-            針對這篇文章：
-            "{body_response}"
-            
-            生成 10 則 PTT 回文。
-            【嚴格格式要求】：
-            1. 每一行開頭必須是 `推|`。
-            2. 不要顯示 ID。
-            3. 直接換行，不要有空行。
-            4. 內容要風格自然。
-            {f"【置入】：請在其中 1-2 則自然提到「{prod_info}」。" if is_promo else ""}
-            """
-            comment_response = model.generate_content(comment_prompt).text
-            
-            # --- 顯示結果 (強制格式處理) ---
-            st.subheader("內文：")
-            st.markdown(body_response)
-            
-            st.subheader("回文：")
-            
-            # 手動處理每一行，確保 Markdown 換行生效
-            comments = comment_response.strip().split('\n')
-            formatted_comments = ""
-            for c in comments:
-                c = c.strip()
-                if c:
-                    # 在每一行後面加上兩個空格 (Markdown 強制換行語法)
-                    formatted_comments += c + "  \n" 
-            
-            st.markdown(formatted_comments)
+            try:
+                # 1. 先生成內文
+                body_prompt = f"""
+                {SYSTEM_INSTRUCTION}
+                標題：{st.session_state.sel_title}
+                主題：{user_topic}
+                語氣：{tone_intensity}
+                
+                任務：請寫一篇 PTT 內文 (約150-200字)。
+                要求：第一人稱，口語化，不要有開頭問候，不要結尾總結，就像隨手打的。
+                """
+                # 加入 safety_settings
+                body_response = model.generate_content(body_prompt, safety_settings=safe_settings).text
+                
+                # 2. 再生成回文
+                comment_prompt = f"""
+                {SYSTEM_INSTRUCTION}
+                針對這篇文章：
+                "{body_response}"
+                
+                生成 10 則 PTT 回文。
+                【嚴格格式要求】：
+                1. 每一行開頭必須是 `推|`。
+                2. 不要顯示 ID。
+                3. 直接換行，不要有空行。
+                4. 內容要風格自然。
+                {f"【置入】：請在其中 1-2 則自然提到「{prod_info}」。" if is_promo else ""}
+                """
+                # 加入 safety_settings
+                comment_response = model.generate_content(comment_prompt, safety_settings=safe_settings).text
+                
+                # --- 顯示結果 (強制格式處理) ---
+                st.subheader("內文：")
+                st.markdown(body_response)
+                
+                st.subheader("回文：")
+                
+                # 手動處理每一行，確保 Markdown 換行生效
+                comments = comment_response.strip().split('\n')
+                formatted_comments = ""
+                for c in comments:
+                    c = c.strip()
+                    if c:
+                        formatted_comments += c + "  \n" 
+                
+                st.markdown(formatted_comments)
+                
+            except Exception as e:
+                st.error("❌ 撰寫內文時發生錯誤：")
+                st.code(str(e))
