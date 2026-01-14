@@ -17,7 +17,7 @@ genai.configure(api_key=api_key)
 # 嘗試使用多種模型，確保穩定性
 try:
     # 優先嘗試 Flash (速度快)
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('models/gemini-2.5-flash')
     response = model.generate_content("test")
 except Exception:
     try:
