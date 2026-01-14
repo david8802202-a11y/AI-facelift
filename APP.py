@@ -84,4 +84,91 @@ col1, col2 = st.columns(2)
 with col1:
     input_method = st.radio("話題來源：", ["醫美預設選單", "✍️ 自訂輸入 (自由發揮)"], horizontal=True)
 
-    if input_method == "
+    if input_method == "醫美預設選單":
+        category = st.selectbox(
+            "選擇類別：",
+            ["醫美閒聊/八卦", "診所黑幕/銷售話術", "電音波/儀器心得", "針劑/微整", "假體/手術", "保健食品/養生"]
+        )
+        user_topic = category
+    else:
+        user_topic = st.text_input("請輸入想討論的主題：", value="韓版電波是智商稅嗎？")
+
+with col2:
+    tone_intensity = st.select_slider(
+        "🔥 語氣強度：",
+        options=["溫和理性", "熱烈討論", "辛辣炎上"],
+        value="熱烈討論"
+    )
+
+tone_prompt = ""
+if tone_intensity == "溫和理性": tone_prompt = "語氣偏向經驗分享，理性分析CP值"
+elif tone_intensity == "熱烈討論": tone_prompt = "語氣活潑，帶有真實鄉民的口吻 (如：笑死、QQ)"
+elif tone_intensity == "辛辣炎上": tone_prompt = "語氣犀利，直接使用「智商稅、盤子、饅化」等強烈詞彙"
+
+# 業配設定
+with st.expander("進階設定：業配置入 (選填)"):
+    is_promotion = st.checkbox("開啟置入模式")
+    product_info = st.text_input("輸入產品名稱與賣點 (例如：營養師輕食魚油，高濃度rTG)")
+
+if 'generated_titles' not in st.session_state:
+    st.session_state.generated_titles = []
+
+# --- 生成標題 ---
+if st.button("🚀 生成 5 個標題"):
+    if not user_topic:
+        st.warning("請輸入主題！")
+        st.stop()
+        
+    with st.spinner(f'AI 正在用鄉民邏輯思考「{user_topic}」...'):
+        try:
+            prompt = f"""
+            {SYSTEM_INSTRUCTION}
+            
+            主題：{user_topic}
+            語氣強度：{tone_intensity}
+            
+            請發想 5 個 PTT/Dcard 風格標題。
+            【要求】：
+            1. 標題必須包含 `[討論]`、`[問題]` 或 `[閒聊]`。
+            2. 嘗試使用資料庫中的詞彙 (如：平替、無底洞、智商稅)。
+            3. 直接列出，一行一個。
+            """
+            response = model.generate_content(prompt)
+            titles = response.text.strip().split('\n')
+            st.session_state.generated_titles = [t.strip() for t in titles if t.strip()]
+        except Exception as e:
+            st.error(f"生成失敗：{e}")
+
+# --- 生成內文 ---
+if st.session_state.generated_titles:
+    st.subheader("👇 選擇一個標題：")
+    selected_title = st.radio("標題列表：", st.session_state.generated_titles)
+    
+    if st.button("✨ 生成內文與回文"):
+        with st.spinner('AI 正在撰寫中...'):
+            try:
+                content_prompt = f"""
+                {SYSTEM_INSTRUCTION}
+                
+                標題：{selected_title}
+                原始主題：{user_topic}
+                語氣強度：{tone_intensity} ({tone_prompt})
+                
+                請完成兩項任務：
+                1. **內文**：約 150-200 字。請使用第一人稱（我），語氣要像是在抱怨或閒聊，請適度使用「QQ、XD、==」等符號。**必須分段換行**。
+                2. **回文**：10 則。嚴格遵守 `推|`、`噓|`、`→|` 格式，**每一則都要換行**。
+                """
+                
+                if is_promotion and product_info:
+                    content_prompt += f"""
+                    【特殊任務】：
+                    在 10 則回文中，請自然地插入 3-4 則關於「{product_info}」的推薦。
+                    重點：要像真實鄉民的「好物推薦」或「推坑」，不要像僵硬的廣告機器人。
+                    """
+                
+                response = model.generate_content(content_prompt)
+                st.divider()
+                st.markdown(response.text)
+                
+            except Exception as e:
+                st.error(f"生成失敗：{e}")
