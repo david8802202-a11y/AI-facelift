@@ -2,7 +2,7 @@ import streamlit as st
 import google.generativeai as genai
 
 # --- 1. 設定頁面 ---
-st.set_page_config(page_title="PTT醫美文案產生器 V3.5", page_icon="💉")
+st.set_page_config(page_title="PTT醫美文案產生器 V4 (穩定版)", page_icon="💉")
 
 # --- 2. 讀取 API Key ---
 api_key = st.secrets.get("GOOGLE_API_KEY")
@@ -13,59 +13,34 @@ if not api_key:
 
 genai.configure(api_key=api_key)
 
-# --- 3. 獲取可用模型 (不死鳥機制) ---
-# 這裡改為：嘗試去抓清單，抓不到就用「備用清單」，絕不讓畫面空白
-def get_models_safely():
-    # 預設備用清單 (萬一 Google API 沒回應，就強制用這些)
-    fallback_models = [
-        "models/gemini-1.5-flash", 
-        "models/gemini-1.5-pro",
-        "models/gemini-1.0-pro"
-    ]
-    
-    try:
-        # 嘗試問 Google 有哪些模型
-        model_list = []
-        for m in genai.list_models():
-            if 'generateContent' in m.supported_generation_methods:
-                model_list.append(m.name)
-        
-        # 排序：把 flash 排前面
-        model_list.sort(key=lambda x: 'flash' not in x)
-        
-        if not model_list:
-            return fallback_models # 抓到了但清單是空的(怪怪的)，回傳備用
-            
-        return model_list
-        
-    except Exception as e:
-        # 抓取失敗 (可能是權限或網路問題)，直接回傳備用清單，讓使用者還是能選
-        return fallback_models
+# --- 3. 指定模型清單 (不再自動掃描，避開地雷模型) ---
+# 這些是目前 Google 穩定開放且有免費額度的模型
+safe_models = [
+    "models/gemini-1.5-flash",  # 首選：速度快、額度最高 (每天1500次)
+    "models/gemini-1.5-pro",    # 次選：文筆較好，但額度較少 (每天50次)
+    "models/gemini-1.0-pro"     # 備選：舊版穩定模型
+]
 
-available_models = get_models_safely()
-
-# --- 4. 側邊欄與除錯工具 ---
+# --- 4. 側邊欄設定 ---
 with st.sidebar:
     st.header("⚙️ 系統設定")
     
-    # 模型選單
+    # 直接讓使用者從安全清單中選擇
     selected_model_name = st.selectbox(
         "🤖 請選擇 AI 模型：",
-        available_models,
-        index=0
+        safe_models,
+        index=0 # 預設選第一個 (1.5-flash)
     )
+    st.caption("✅ 這裡只列出保證可用的穩定版模型。")
     
-    # 新增：除錯按鈕 (如果又不能用，按這個看真相)
-    with st.expander("🔧 連線測試與除錯"):
-        if st.button("測試目前模型連線"):
-            try:
-                test_model = genai.GenerativeModel(selected_model_name)
-                response = test_model.generate_content("Hi", generation_config={"max_output_tokens": 1})
-                st.success(f"✅ 連線成功！模型 {selected_model_name} 正常運作中。")
-            except Exception as e:
-                st.error("❌ 連線失敗，真實錯誤訊息如下：")
-                st.code(str(e))
-                st.caption("請將上方紅字錯誤訊息複製下來，可以查出真正原因。")
+    # 測試按鈕
+    if st.button("測試目前模型連線"):
+        try:
+            test_model = genai.GenerativeModel(selected_model_name)
+            response = test_model.generate_content("Hi", generation_config={"max_output_tokens": 1})
+            st.success(f"連線成功！{selected_model_name} 運作正常。")
+        except Exception as e:
+            st.error(f"連線失敗：{e}")
 
 # 設定當前使用的模型
 model = genai.GenerativeModel(selected_model_name)
@@ -85,7 +60,7 @@ SYSTEM_INSTRUCTION = """
 """
 
 # --- 6. 主畫面 ---
-st.title("💉 PTT/Dcard 醫美文案生成器 V3.5")
+st.title("💉 PTT/Dcard 醫美文案生成器 V4")
 
 # 區塊 1: 話題與強度設定
 st.header("步驟 1：設定參數")
@@ -123,7 +98,7 @@ if 'generated_titles' not in st.session_state:
 
 # 按鈕：生成標題
 if st.button("🚀 生成 5 個標題"):
-    with st.spinner(f'AI 正在發想標題...'):
+    with st.spinner(f'AI ({selected_model_name}) 正在發想標題...'):
         try:
             prompt = f"""
             {SYSTEM_INSTRUCTION}
@@ -142,7 +117,8 @@ if st.button("🚀 生成 5 個標題"):
             st.session_state.generated_titles = [t.strip() for t in titles if t.strip()]
         except Exception as e:
             st.error(f"生成失敗：{e}")
-            st.info("💡 建議：請點擊左側欄位的「測試目前模型連線」按鈕，查看詳細錯誤原因。")
+            if "429" in str(e):
+                st.warning("⚠️ 額度已滿或請求太快，請換一個模型 (建議選 1.5-flash) 或稍等一分鐘。")
 
 # 步驟 2: 選擇並生成內容
 if st.session_state.generated_titles:
