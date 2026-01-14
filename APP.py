@@ -4,11 +4,11 @@ import os
 import random
 
 # --- 1. 設定頁面 ---
-st.set_page_config(page_title="PTT/Dcard 文案產生器 (V36 腦袋分離版)", page_icon="🧠")
+st.set_page_config(page_title="PTT/Dcard 文案產生器 (V37 真人短文版)", page_icon="🗣️")
 
 api_key = st.secrets.get("GOOGLE_API_KEY")
 
-st.title("🧠 PTT/Dcard 文案產生器 (V36 腦袋分離版)")
+st.title("🗣️ PTT/Dcard 文案產生器 (V37 真人短文版)")
 
 if not api_key:
     st.error("❌ 找不到 API Key！")
@@ -16,68 +16,65 @@ if not api_key:
 
 genai.configure(api_key=api_key)
 
-# --- 2. 抓取所有模型清單 ---
+# --- 2. 取得模型清單 (手動選擇最保險) ---
 @st.cache_resource
 def get_all_models():
     try:
         models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        # 排序：優先把 1.5-pro 排前面，因為它最聰明
-        models.sort(key=lambda x: 0 if "1.5-pro" in x else 1)
+        # 排序：把 1.5-pro 和 1.0-pro 排前面，避開 flash
+        def sort_priority(name):
+            if "gemini-1.5-pro" in name and "exp" not in name: return 0
+            if "gemini-pro" in name: return 1
+            return 10
+        models.sort(key=sort_priority)
         return models
     except:
-        return ["models/gemini-pro", "models/gemini-1.5-pro"]
+        return ["models/gemini-1.5-pro", "models/gemini-pro"]
 
 all_my_models = get_all_models()
 
 # --- 3. 側邊欄：手動選擇模型 ---
 with st.sidebar:
     st.header("⚙️ 模型設定")
-    st.info("若產出亂碼，請切換不同模型試試。")
-    selected_model_name = st.selectbox("👇 選擇模型：", all_my_models, index=0)
+    selected_model_name = st.selectbox("👇 選擇模型 (若失敗請換一個)：", all_my_models, index=0)
     
-    # 顯示狀態
-    if "2.5" in selected_model_name:
-        st.warning("⚠️ 2.5 版額度極少，容易失敗。")
-    elif "1.5-pro" in selected_model_name:
-        st.success("✅ 1.5-Pro 是最推薦的穩定選擇。")
+    if "flash" in selected_model_name:
+        st.warning("⚠️ Flash 模型在您帳號可能會有 404 問題，建議改用 Pro。")
+    elif "2.5" in selected_model_name:
+        st.warning("⚠️ 2.5 版本額度極少 (20次)，容易失敗。")
+    else:
+        st.success(f"目前使用：{selected_model_name} (推薦)")
 
-# 建立模型物件
 model = genai.GenerativeModel(selected_model_name)
 
-# --- 4. 關鍵修正：把指令拆開，不要混在一起 ---
+# --- 4. 餵入真實範文 (Few-Shot Prompting) ---
+# 這些是從您提供的檔案中提取的真實語氣
+REAL_EXAMPLES = """
+【參考範文 1】：
+標題：[討論] 韓版電波真的是平替?
+內文：美國電波實在漲太兇，打一次900發都要快10萬。看到很多診所狂推韓版電波，價格只要1/3。大家都說CP值很高，但我心裡一直有個疑問，一分錢一分貨，如果效果真的差不多，那鳳凰怎麼還沒倒？韓版到底是真平替，還是只是打個心安的安慰劑？
 
-# 這是「通用」的人設，大家都能用
-BASE_PERSONA = "你是一個台灣 PTT (批踢踢實業坊 Facelift 版) 的資深鄉民。語氣要口語化、真實，多用「啊、吧、嗎、了」。"
+【參考範文 2】：
+標題：[討論] 針劑醫美根本是無底洞
+內文：以前覺得動手術貴，結果記帳發現針劑才是錢坑。肉毒一年要2-3次，玻尿酸半年消一半又要補。算下來一張臉每年的「維護費」竟然要10幾萬！而且是每年都要付！大家有算過自己的「臉部年費」嗎？
 
-# 這是「專門寫內文」的指令 (拿掉了回文規則)
-BODY_INSTRUCTION = f"""
-{BASE_PERSONA}
-**任務：寫一篇「第一人稱」的 PTT 心得文或問題文。**
-【風格要求】：
-1. 就像跟朋友聊天，句子要碎，不要太完整。
-2. **禁止**使用「首先、總結來說」這種 AI 用語。
-3. **禁止**在開頭打招呼 (大家好)，也禁止在結尾自我介紹。
-4. 直接切入重點，要有真實的情緒 (困擾、生氣、猶豫)。
+【參考範文 3】：
+標題：[討論] 男生說喜歡自然美女 其實根本分不出來吧
+內文：常聽到男生說「不喜歡女生整形」，結果轉頭狂讚IG網美。但我仔細看，那些女生明明都有動過啊！鼻子微調、額頭補脂...只是做得很高階而已。是不是對直男來說，只要沒有變成蛇精臉，看不出明顯痕跡的統統算天然？
 """
 
-# 這是「專門寫回文」的指令 (強調格式)
-COMMENT_INSTRUCTION = f"""
-{BASE_PERSONA}
-**任務：針對文章生成 8-10 則簡短的鄉民回文。**
-【嚴格格式要求】：
-1. 每一行**必須**以 `推|`、`噓|` 或 `→|` 開頭。
-2. 格式範例：`推| 真的假的...我才剛想去`。
-3. **絕對不要**生成帳號 ID。
-4. 內容要簡短、嗆辣或中肯，不要長篇大論。
-"""
+# --- 5. 設定指令 ---
+BASE_PERSONA = f"""
+你是一個台灣 PTT (Facelift版) 的資深鄉民。
+請參考以下【真實範文】的語氣、長度與用詞風格：
+{REAL_EXAMPLES}
 
-# 設定「穩定器」參數，防止 AI 發瘋
-stable_config = genai.types.GenerationConfig(
-    temperature=0.7,  # 稍微降低創意度，讓它乖一點
-    top_p=0.9,
-    top_k=40,
-    max_output_tokens=1000,
-)
+**核心要求**：
+1. **口語化**：像跟朋友聊天，不要有「首先、總之」這種 AI 轉折詞。
+2. **字數**：**嚴格控制在 100-120 字左右**，短促有力。
+3. **情緒**：要有真實的困惑、懷疑或抱怨 (例如：殺毀、真的假的、==)。
+4. **格式**：第一人稱，不要開頭打招呼。
+"""
 
 # 安全設定 (全開)
 safe_settings = [
@@ -87,15 +84,6 @@ safe_settings = [
     {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
 ]
 
-# --- 5. 歷史風格 ---
-reference_titles = []
-if os.path.exists("history.txt"):
-    try:
-        with open("history.txt", "r", encoding="utf-8") as f:
-            lines = [l.strip() for l in f.readlines() if l.strip().startswith("[")]
-            if lines: reference_titles = random.sample(lines, min(len(lines), 5))
-    except: pass
-
 # --- 6. 主介面 ---
 if 'used_titles' not in st.session_state: st.session_state.used_titles = set()
 if 'candidate_titles' not in st.session_state: st.session_state.candidate_titles = []
@@ -104,7 +92,7 @@ col1, col2 = st.columns(2)
 
 with col1:
     st.subheader("📌 標題分類")
-    ptt_tag = st.selectbox("選擇標籤：", ["[問題]", "[討論]", "[心得]", "[閒聊]", "[請益]", "[黑特]", "🎲 隨機"])
+    ptt_tag = st.selectbox("選擇標籤：", ["[問題]", "[討論]", "[心得]", "[閒聊]", "[黑特]", "🎲 隨機"])
     topic_category = st.selectbox("議題內容：", ["💉 針劑/微整", "⚡ 電音波/雷射", "🏥 醫美診所/黑幕", "🔪 整形手術", "✍️ 自訂主題"])
     
     if "自訂" in topic_category:
@@ -115,16 +103,14 @@ with col1:
 with col2:
     st.subheader("🔥 設定")
     tone_intensity = st.select_slider("強度：", ["溫和", "熱烈", "炎上"], value="熱烈")
-    ref_text = ("【參考風格】：\n" + "\n".join(reference_titles)) if reference_titles else ""
-
+    
     st.markdown("---")
     if st.button("🚀 生成 5 個標題", use_container_width=True):
-        with st.spinner(f"正在使用 {selected_model_name} 生成..."):
+        with st.spinner(f"正在使用 {selected_model_name} 模仿鄉民..."):
             try:
                 target_tag = ptt_tag.split(" ")[0] if "隨機" not in ptt_tag else "[問題]"
                 prompt = f"""
                 {BASE_PERSONA}
-                {ref_text}
                 任務：發想 10 個 PTT 標題。
                 嚴格限制：
                 1. 必須以「{target_tag}」開頭。
@@ -133,7 +119,7 @@ with col2:
                 4. 語氣：{tone_intensity}
                 一行一個，不要編號。
                 """
-                response = model.generate_content(prompt, safety_settings=safe_settings, generation_config=stable_config)
+                response = model.generate_content(prompt, safety_settings=safe_settings)
                 titles = response.text.strip().split('\n')
                 st.session_state.candidate_titles = [t.strip() for t in titles if t.strip()][:5]
             except Exception as e:
@@ -157,46 +143,54 @@ if 'sel_title' in st.session_state:
         is_promo = st.checkbox("開啟置入")
         prod_info = st.text_input("產品資訊", "XX診所")
 
-    if st.button("✍️ 撰寫內文 (格式修復版)"):
-        with st.spinner("正在分段撰寫中..."):
+    if st.button("✍️ 撰寫內文 (真人短文模式)"):
+        with st.spinner("撰寫中..."):
             try:
-                # --- 第一步：只寫內文 (使用乾淨的指令) ---
+                # --- 第一步：寫內文 (100字左右) ---
                 body_prompt = f"""
-                {BODY_INSTRUCTION}
+                {BASE_PERSONA}
                 標題：{st.session_state.sel_title}
                 主題：{user_topic}
                 語氣：{tone_intensity}
-                """
-                body_response = model.generate_content(body_prompt, safety_settings=safe_settings, generation_config=stable_config).text
                 
-                # --- 第二步：只寫回文 (給它看內文，但指令專注於回文) ---
+                任務：寫一篇 PTT 內文。
+                【非常重要】：
+                1. **字數控制在 100-120 字之間**，不要太長。
+                2. 像在用手機打字，句子短一點。
+                3. 不要開頭問好，不要結尾總結。
+                """
+                body_response = model.generate_content(body_prompt, safety_settings=safe_settings).text
+                
+                # --- 第二步：寫回文 (口語化) ---
                 comment_prompt = f"""
-                {COMMENT_INSTRUCTION}
-                請針對這篇文章生成回文：
-                文章內容："{body_response}"
+                {BASE_PERSONA}
+                針對這篇文章生成 8 則回文：
+                "{body_response}"
                 
-                {f"【置入任務】：請在其中 1-2 則回文自然提到「{prod_info}」。" if is_promo else ""}
+                【回文格式】：
+                1. 每一行開頭必須是 `推|`、`噓|` 或 `→|`。
+                2. **不要**有 ID。
+                3. 內容要簡短、像真人 (例如：真的...、笑死、+1)。
+                {f"【置入】：請在其中 1 則回文自然提到「{prod_info}」，不要太硬。" if is_promo else ""}
                 """
-                comment_response = model.generate_content(comment_prompt, safety_settings=safe_settings, generation_config=stable_config).text
+                comment_response = model.generate_content(comment_prompt, safety_settings=safe_settings).text
                 
-                # --- 顯示結果 ---
+                # --- 顯示結果 (強制格式處理) ---
                 st.subheader("內文：")
-                st.markdown(body_response)
+                st.write(body_response) # 使用 write 自動換行比較自然
                 
                 st.subheader("回文：")
-                
-                # 再次進行 Python 強制格式化，過濾掉亂碼
                 comments = comment_response.strip().split('\n')
                 formatted_comments = ""
                 for c in comments:
                     c = c.strip()
-                    # 只保留真正符合格式的行，過濾掉 AI 發瘋產生的 "嗎|" "的|"
-                    if c.startswith("推") or c.startswith("噓") or c.startswith("→"):
-                        formatted_comments += c + "  \n"
-                    # 如果 AI 沒加符號但內容正常，我們幫它加一個箭頭
-                    elif len(c) > 2 and "|" not in c:
-                        formatted_comments += f"→| {c}  \n"
-                        
+                    if c:
+                        # 再次確保只有合格的行被顯示
+                        if any(x in c for x in ["推|", "噓|", "→|"]):
+                             formatted_comments += c + "  \n"
+                        elif len(c) > 2: # 沒符號但有內容，補箭頭
+                             formatted_comments += f"→| {c}  \n"
+
                 st.markdown(formatted_comments)
                 
             except Exception as e:
