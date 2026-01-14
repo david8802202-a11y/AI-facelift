@@ -266,4 +266,8 @@ if 'sel_title' in st.session_state:
                         elif len(c) > 2: 
                              formatted_comments += f"→| {c}  \n"
 
-                st.markdown(formatted_
+                st.markdown(formatted_comments)
+                
+            except Exception as e:
+                st.error("撰寫失敗")
+                st.code(str(e))
