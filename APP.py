@@ -2,7 +2,7 @@ import streamlit as st
 import google.generativeai as genai
 
 # --- 1. 設定頁面 ---
-st.set_page_config(page_title="PTT醫美文案產生器 V2.5", page_icon="💉")
+st.set_page_config(page_title="PTT醫美文案產生器 V2.5 (穩定版)", page_icon="💉")
 
 # --- 2. 讀取 API Key ---
 api_key = st.secrets.get("GOOGLE_API_KEY")
@@ -14,16 +14,15 @@ if not api_key:
 # --- 3. 設定 Google AI ---
 genai.configure(api_key=api_key)
 
-# 依照您的指示，指定使用 'models/gemini-2.5-flash'
+# 【關鍵修正】改回使用 'gemini-1.5-flash'
+# 原因：2.5 版本目前有極嚴格的每日次數限制 (20次)，容易報錯 429。
+# 1.5 版本每天可免費呼叫 1500 次，非常穩定。
 try:
-    model = genai.GenerativeModel('models/gemini-2.5-flash')
-    # 稍微測試一下模型是否活著 (不消耗大量 token)
-    # 這裡用一個簡單的請求來驗證連線
-    # 如果 2.5 失敗，會直接跳到 except 顯示錯誤
+    model = genai.GenerativeModel('gemini-1.5-flash')
+    # 測試連線
+    response = model.generate_content("test")
 except Exception as e:
-    st.error(f"⚠️ 模型載入失敗：無法使用 'models/gemini-2.5-flash'。")
-    st.error(f"錯誤訊息：{e}")
-    st.info("建議：請檢查模型名稱是否正確，或暫時改回 'models/gemini-1.5-flash'。")
+    st.error(f"⚠️ 模型載入失敗。錯誤訊息：{e}")
     st.stop()
 
 # --- 4. 系統提示詞 (AI 的人設與核心規則) ---
@@ -37,8 +36,8 @@ SYSTEM_INSTRUCTION = """
 """
 
 # --- 5. 網頁介面 ---
-st.title("💉 PTT/Dcard 醫美文案生成器 V2.5")
-st.caption("目前使用模型：Gemini 2.5 Flash")
+st.title("💉 PTT/Dcard 醫美文案生成器")
+st.caption("目前使用模型：Gemini 1.5 Flash (高額度穩定版)")
 
 # 區塊 1: 話題與強度設定
 st.header("步驟 1：設定參數")
@@ -52,7 +51,7 @@ with col1:
     )
 
 with col2:
-    # 新增：語氣強度滑桿
+    # 語氣強度滑桿
     tone_intensity = st.select_slider(
         "🔥 選擇標題/文案強度：",
         options=["溫和理性", "熱烈討論", "辛辣炎上"],
@@ -81,7 +80,7 @@ if 'generated_titles' not in st.session_state:
 if st.button("🚀 生成 5 個標題"):
     with st.spinner(f'AI 正在發想【{tone_intensity}】風格的標題...'):
         try:
-            # 加入更嚴格的多樣性指令 (這就是之前報錯的地方，請確認引號有完整複製)
+            # 加入多樣性指令
             prompt = f"""
             {SYSTEM_INSTRUCTION}
             
@@ -107,6 +106,7 @@ if st.button("🚀 生成 5 個標題"):
             
         except Exception as e:
             st.error(f"生成失敗：{e}")
+            st.info("若出現 429 錯誤，請稍等一分鐘後再試。")
 
 # 步驟 2: 選擇並生成內容
 if st.session_state.generated_titles:
