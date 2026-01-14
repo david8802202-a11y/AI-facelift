@@ -130,3 +130,16 @@ if st.session_state.generated_titles:
                 
                 if is_promotion and product_info:
                     content_prompt += f"""
+                    【特殊要求】：
+                    在 10 則回文中，請自然地安排 3 則回文推薦「{product_info}」。
+                    切記：推薦要像真實使用者的分享，不要太生硬的廣告感。
+                    """
+                
+                response = model.generate_content(content_prompt)
+                
+                st.divider()
+                st.subheader("生成結果：")
+                st.markdown(response.text)
+                
+            except Exception as e:
+                st.error(f"生成失敗：{e}")
