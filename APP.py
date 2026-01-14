@@ -16,7 +16,7 @@ if not api_key:
 genai.configure(api_key=api_key)
 
 # 設定模型
-model = genai.GenerativeModel('gemini-1.5-pro')
+model = genai.GenerativeModel('gemini-pro')
 
 # --- 系統提示詞 (AI 的人設) ---
 SYSTEM_INSTRUCTION = """
