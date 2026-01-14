@@ -105,3 +105,7 @@ if st.session_state.generated_titles:
                 
                 st.divider()
                 st.subheader("生成結果：")
+                st.markdown(response.text)
+                
+            except Exception as e:
+                st.error(f"生成失敗，請稍後再試。錯誤訊息：{e}")
