@@ -96,4 +96,119 @@ SYSTEM_INSTRUCTION = """
 你的語氣必須非常「台式地氣」，模仿真實論壇的討論風格。
 
 【語氣與用詞資料庫】：
-1. **關鍵詞彙**：平替、安慰劑、智商稅、
+1. **關鍵詞彙**：平替、安慰劑、智商稅、黑科技、無底洞、訂閱制、饅化、塑膠感、蛇精臉、一分錢一分貨、腦波弱、容貌焦慮、直男看不懂。
+2. **標題風格**：喜歡用「反問法」、「強烈質疑」或「心得分享」。
+3. **回文格式**：每一則回文必須**獨立一行**，且包含 `推|`、`噓|`、`→|`。
+
+【重要任務】：
+請發想標題，但**絕對不要**使用重複、老梗、或太像廣告的標題。
+"""
+
+# --- 7. 標題生成區 ---
+col1, col2 = st.columns(2)
+with col1:
+    input_method = st.radio("話題來源：", ["醫美預設選單", "✍️ 自訂輸入"], horizontal=True)
+    if input_method == "醫美預設選單":
+        user_topic = st.selectbox("選擇類別：", ["醫美閒聊/八卦", "診所黑幕/銷售話術", "電音波/儀器心得", "針劑/微整", "假體/手術"])
+    else:
+        user_topic = st.text_input("輸入主題：", value="韓版電波是智商稅嗎？")
+
+with col2:
+    tone_intensity = st.select_slider("🔥 語氣強度：", options=["溫和理性", "熱烈討論", "辛辣炎上"], value="熱烈討論")
+
+if st.button("🚀 生成 5 個新標題 (自動過濾重複)"):
+    if not user_topic:
+        st.warning("請輸入主題！")
+        st.stop()
+        
+    with st.spinner(f'AI 正在參考 {len(blacklist_titles)} 筆歷史資料進行發想...'):
+        try:
+            # 為了過濾，我們要求 AI 多想一點
+            prompt = f"""
+            {SYSTEM_INSTRUCTION}
+            主題：{user_topic}
+            語氣：{tone_intensity}
+            
+            請發想 10 個 PTT/Dcard 風格標題。
+            要求：
+            1. 標題要吸睛，不要有編號。
+            2. 不要使用太常見的農場標題。
+            
+            直接列出，一行一個。
+            """
+            response = model.generate_content(prompt)
+            raw_titles = response.text.strip().split('\n')
+            
+            clean_titles = []
+            for t in raw_titles:
+                t = t.strip()
+                if not t: continue
+                
+                # 檢查 1: 本次是否用過
+                if t in st.session_state.used_titles:
+                    continue
+                    
+                # 檢查 2: 是否在黑名單 (只要包含在黑名單標題裡就算撞)
+                # 這裡做模糊比對會太慢，先用精準比對
+                if t in blacklist_titles:
+                    continue
+                
+                clean_titles.append(t)
+            
+            st.session_state.candidate_titles = clean_titles[:5]
+            
+            if len(clean_titles) < 5:
+                st.warning(f"AI 生成了 10 個，過濾重複後剩 {len(clean_titles)} 個。")
+                
+        except Exception as e:
+            st.error(f"生成失敗：{e}")
+
+st.divider()
+
+# --- 8. 標題互動區 ---
+if st.session_state.candidate_titles:
+    st.subheader("👇 點擊「採用」以生成內文 (該標題將不再出現)")
+    
+    for i, title in enumerate(st.session_state.candidate_titles):
+        c1, c2 = st.columns([0.85, 0.15])
+        with c1:
+            st.code(title, language=None)
+        with c2:
+            if st.button("✨ 採用", key=f"btn_{i}"):
+                st.session_state.selected_title_for_content = title
+                st.session_state.used_titles.add(title)
+                st.session_state.candidate_titles.pop(i)
+                st.rerun()
+else:
+    st.info("👈 請點擊左上方按鈕生成標題")
+
+# --- 9. 內文生成區 ---
+if 'selected_title_for_content' in st.session_state:
+    target_title = st.session_state.selected_title_for_content
+    st.divider()
+    st.markdown(f"### 📝 正在撰寫：{target_title}")
+    
+    with st.expander("置入設定 (選填)"):
+        is_promotion = st.checkbox("開啟置入")
+        product_info = st.text_input("產品資訊", value="營養師輕食魚油")
+
+    if st.button("開始撰寫內文與回文"):
+        with st.spinner('撰寫中...'):
+            try:
+                content_prompt = f"""
+                {SYSTEM_INSTRUCTION}
+                標題：{target_title}
+                主題：{user_topic}
+                語氣：{tone_intensity}
+                
+                任務：
+                1. 內文 (150-200字，第一人稱，分段換行，口語化)
+                2. 回文 (10則，嚴格遵守 推| 噓| →| 格式)
+                """
+                if is_promotion:
+                    content_prompt += f"\n【置入任務】：在回文中自然推薦「{product_info}」。"
+                
+                response = model.generate_content(content_prompt)
+                st.markdown(response.text)
+            except Exception as e:
+                st.error(str(e))
