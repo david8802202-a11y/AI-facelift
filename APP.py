@@ -1,24 +1,34 @@
 import streamlit as st
 import google.generativeai as genai
-import os
 
-# --- 設定頁面 ---
+# --- 1. 設定頁面 ---
 st.set_page_config(page_title="PTT醫美文案產生器", page_icon="💉")
 
-# --- 設定 API 金鑰 (從 Secrets 讀取) ---
-# 這是為了讓你的金鑰不要暴露在程式碼中
+# --- 2. 讀取 API Key ---
 api_key = st.secrets.get("GOOGLE_API_KEY")
 
 if not api_key:
-    st.error("找不到 API Key！請在 Streamlit 的 Secrets 設定中加入 GOOGLE_API_KEY。")
+    st.error("❌ 找不到 API Key！請檢查 Streamlit 的 Secrets 設定。")
     st.stop()
 
+# --- 3. 設定 Google AI (包含自動模型切換) ---
 genai.configure(api_key=api_key)
 
-# 設定模型
-model = 'gemini-2.5-flash'
+# 嘗試建立模型，如果新版失敗就自動換舊版
+try:
+    # 優先嘗試最新版 Flash (速度快、免費額度高)
+    model = genai.GenerativeModel('gemini-1.5-flash')
+    # 測試一下是否活著
+    response = model.generate_content("Hi", generation_config={"max_output_tokens": 1})
+except Exception:
+    try:
+        # 如果失敗，嘗試 Pro 版本
+        model = genai.GenerativeModel('gemini-1.5-pro')
+    except Exception:
+        # 如果再失敗，使用最舊但最穩的 Pro 版本
+        model = genai.GenerativeModel('gemini-pro')
 
-# --- 系統提示詞 (AI 的人設) ---
+# --- 4. 系統提示詞 (AI 的人設) ---
 SYSTEM_INSTRUCTION = """
 你是一個精通台灣 PTT (批踢踢實業坊) 與 Dcard 文化的資深鄉民，同時也是專業的醫美行銷文案寫手。
 你的任務是根據使用者的需求，撰寫極具討論度、真實感、甚至帶點爭議性的文章。
@@ -29,11 +39,11 @@ SYSTEM_INSTRUCTION = """
 3. 【回文】：模擬鄉民推噓文，包含護航、酸民、反串、中肯分析等不同立場。需產出10則。
 """
 
-# --- 網頁介面開始 ---
+# --- 5. 網頁介面 ---
 st.title("💉 PTT/Dcard 醫美文案生成器")
 st.markdown("使用 Google Gemini AI 驅動，一鍵生成爭議性話題與鄉民回覆。")
 
-# --- 步驟 1: 選擇大綱 ---
+# 步驟 1: 選擇大綱
 st.header("步驟 1：選擇話題")
 category = st.selectbox(
     "請選擇議題切角：",
@@ -45,7 +55,7 @@ with st.expander("進階設定：業配置入 (選填)"):
     is_promotion = st.checkbox("開啟置入模式")
     product_info = st.text_input("輸入產品名稱與賣點 (例如：營養師輕食NMN，天然酵母來源)")
 
-# 初始化 session state (用來記住 AI 生成的標題)
+# 初始化 session state
 if 'generated_titles' not in st.session_state:
     st.session_state.generated_titles = []
 
@@ -58,15 +68,15 @@ if st.button("🚀 生成 5 個標題"):
             請針對「{category}」這個主題，發想 5 個 PTT/Dcard 風格的標題。
             標題要有吸引力，只要列出標題就好，不要有編號或其他廢話。
             """
+            # 這裡呼叫的是 model 物件，不是字串
             response = model.generate_content(prompt)
-            # 處理回傳文字
+            
             titles = response.text.strip().split('\n')
-            # 過濾掉空白行
             st.session_state.generated_titles = [t.strip() for t in titles if t.strip()]
         except Exception as e:
-            st.error(f"發生錯誤：{e}")
+            st.error(f"生成失敗，請稍後再試。錯誤訊息：{e}")
 
-# --- 步驟 2: 選擇並生成內容 ---
+# 步驟 2: 選擇並生成內容
 if st.session_state.generated_titles:
     st.header("步驟 2：選擇標題並生成內容")
     selected_title = st.radio("請選擇一個標題：", st.session_state.generated_titles)
@@ -74,7 +84,6 @@ if st.session_state.generated_titles:
     if st.button("✨ 生成內文與回文"):
         with st.spinner('AI 正在撰寫文章與水軍回覆...'):
             try:
-                # 組合指令
                 content_prompt = f"""
                 {SYSTEM_INSTRUCTION}
                 
@@ -96,7 +105,3 @@ if st.session_state.generated_titles:
                 
                 st.divider()
                 st.subheader("生成結果：")
-                st.markdown(response.text)
-                
-            except Exception as e:
-                st.error(f"發生錯誤：{e}")
