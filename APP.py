@@ -1,9 +1,8 @@
 import streamlit as st
 import google.generativeai as genai
-import time
 
 # --- 1. 設定頁面 ---
-st.set_page_config(page_title="PTT醫美文案產生器 V3", page_icon="💉")
+st.set_page_config(page_title="PTT醫美文案產生器 V3.5", page_icon="💉")
 
 # --- 2. 讀取 API Key ---
 api_key = st.secrets.get("GOOGLE_API_KEY")
@@ -14,59 +13,64 @@ if not api_key:
 
 genai.configure(api_key=api_key)
 
-# --- 3. 智慧模型過濾器 (只顯示能用的！) ---
-@st.cache_resource(ttl=3600) # 快取 1 小時，避免每次重整都跑測試
-def get_working_models():
-    # 定義我們想用的模型清單 (優先順序)
-    candidate_models = [
-        'models/gemini-1.5-flash',       # 首選：快且免費額度高
-        'models/gemini-2.0-flash-exp',   # 次選：新版實驗模型 (如果帳號有權限)
-        'models/gemini-1.5-pro',         # 三選：品質好但額度較少
-        'models/gemini-1.0-pro'          # 備選：舊版穩定模型
+# --- 3. 獲取可用模型 (不死鳥機制) ---
+# 這裡改為：嘗試去抓清單，抓不到就用「備用清單」，絕不讓畫面空白
+def get_models_safely():
+    # 預設備用清單 (萬一 Google API 沒回應，就強制用這些)
+    fallback_models = [
+        "models/gemini-1.5-flash", 
+        "models/gemini-1.5-pro",
+        "models/gemini-1.0-pro"
     ]
     
-    working_models = []
-    
-    # 建立一個佔位符號顯示檢查進度
-    status_text = st.empty()
-    status_text.text("正在檢測可用模型額度...")
-    
-    for model_name in candidate_models:
-        try:
-            # 建立模型並嘗試生成一個字 "Hi"
-            model = genai.GenerativeModel(model_name)
-            response = model.generate_content("Hi", generation_config={"max_output_tokens": 1})
-            # 如果沒報錯，加入可用清單
-            working_models.append(model_name)
-        except Exception:
-            # 如果報錯 (404, 429)，就跳過它
-            continue
+    try:
+        # 嘗試問 Google 有哪些模型
+        model_list = []
+        for m in genai.list_models():
+            if 'generateContent' in m.supported_generation_methods:
+                model_list.append(m.name)
+        
+        # 排序：把 flash 排前面
+        model_list.sort(key=lambda x: 'flash' not in x)
+        
+        if not model_list:
+            return fallback_models # 抓到了但清單是空的(怪怪的)，回傳備用
             
-    status_text.empty() # 清除進度文字
-    return working_models
+        return model_list
+        
+    except Exception as e:
+        # 抓取失敗 (可能是權限或網路問題)，直接回傳備用清單，讓使用者還是能選
+        return fallback_models
 
-# 獲取過濾後的模型清單
-with st.spinner('正在篩選尚有額度的模型...'):
-    available_models = get_working_models()
+available_models = get_models_safely()
 
-# --- 4. 側邊欄與模型設定 ---
+# --- 4. 側邊欄與除錯工具 ---
 with st.sidebar:
     st.header("⚙️ 系統設定")
-    if available_models:
-        selected_model_name = st.selectbox(
-            "🟢 請選擇模型 (僅顯示可用)：",
-            available_models,
-            index=0
-        )
-        st.caption("✨ 列表中的模型剛剛已通過連線測試。")
-    else:
-        st.error("⚠️ 所有模型皆暫時無法使用 (可能是額度耗盡或 API Key 異常)。")
-        st.stop()
+    
+    # 模型選單
+    selected_model_name = st.selectbox(
+        "🤖 請選擇 AI 模型：",
+        available_models,
+        index=0
+    )
+    
+    # 新增：除錯按鈕 (如果又不能用，按這個看真相)
+    with st.expander("🔧 連線測試與除錯"):
+        if st.button("測試目前模型連線"):
+            try:
+                test_model = genai.GenerativeModel(selected_model_name)
+                response = test_model.generate_content("Hi", generation_config={"max_output_tokens": 1})
+                st.success(f"✅ 連線成功！模型 {selected_model_name} 正常運作中。")
+            except Exception as e:
+                st.error("❌ 連線失敗，真實錯誤訊息如下：")
+                st.code(str(e))
+                st.caption("請將上方紅字錯誤訊息複製下來，可以查出真正原因。")
 
 # 設定當前使用的模型
 model = genai.GenerativeModel(selected_model_name)
 
-# --- 5. 系統提示詞 (依您的需求調整) ---
+# --- 5. 系統提示詞 ---
 SYSTEM_INSTRUCTION = """
 你是一個精通台灣 PTT (批踢踢實業坊) 與 Dcard 文化的資深鄉民，同時也是專業的醫美行銷文案寫手。
 
@@ -81,7 +85,7 @@ SYSTEM_INSTRUCTION = """
 """
 
 # --- 6. 主畫面 ---
-st.title("💉 PTT/Dcard 醫美文案生成器 V3")
+st.title("💉 PTT/Dcard 醫美文案生成器 V3.5")
 
 # 區塊 1: 話題與強度設定
 st.header("步驟 1：設定參數")
@@ -89,7 +93,6 @@ st.header("步驟 1：設定參數")
 col1, col2 = st.columns(2)
 
 with col1:
-    # 恢復並簡化分類選單 (對應 PTT 常見分類)
     category = st.selectbox(
         "請選擇議題類別：",
         ["醫美閒聊/八卦", "診所黑幕/銷售話術", "電音波/儀器心得", "針劑/微整 (玻尿酸/肉毒)", "假體/手術 (隆乳/隆鼻)", "保健食品/養生/減肥"]
@@ -139,6 +142,7 @@ if st.button("🚀 生成 5 個標題"):
             st.session_state.generated_titles = [t.strip() for t in titles if t.strip()]
         except Exception as e:
             st.error(f"生成失敗：{e}")
+            st.info("💡 建議：請點擊左側欄位的「測試目前模型連線」按鈕，查看詳細錯誤原因。")
 
 # 步驟 2: 選擇並生成內容
 if st.session_state.generated_titles:
