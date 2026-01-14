@@ -4,11 +4,11 @@ import os
 import random
 
 # --- 1. 設定頁面 ---
-st.set_page_config(page_title="PTT/Dcard 文案產生器 (V31 解鎖版)", page_icon="🔓")
+st.set_page_config(page_title="PTT/Dcard 文案產生器 (V33 經典版)", page_icon="🏛️")
 
 api_key = st.secrets.get("GOOGLE_API_KEY")
 
-st.title("🔓 PTT/Dcard 文案產生器 (V31 安全解鎖版)")
+st.title("🏛️ PTT/Dcard 文案產生器 (V33 經典版)")
 
 if not api_key:
     st.error("❌ 找不到 API Key！")
@@ -16,56 +16,49 @@ if not api_key:
 
 genai.configure(api_key=api_key)
 
-# --- 2. 核心連線邏輯 ---
+# --- 2. 核心連線邏輯 (強制使用 gemini-pro 1.0) ---
 @st.cache_resource
-def find_working_model():
-    all_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-    def sort_key(name):
-        if "gemini-1.5-pro" in name and "exp" not in name: return 0
-        if "gemini-1.0-pro" in name: return 1
-        if "gemini-pro" in name: return 2
-        if "flash" in name: return 3
-        return 4
-    all_models.sort(key=sort_key)
-    for m in all_models:
+def get_stable_model():
+    # 這裡我們不自動亂抓了，直接指定最經典的 1.0 版本
+    # 這個版本最不容易出錯，雖然速度沒 Flash 快，但最穩定
+    target_models = [
+        "gemini-pro",         # Google 最標準的名稱
+        "models/gemini-pro",  # 另一種寫法
+        "models/gemini-1.5-pro-latest" # 萬一 1.0 真的不行，才用 1.5 Pro (不是 Flash)
+    ]
+    
+    for m in target_models:
         try:
             model = genai.GenerativeModel(m)
+            # 發送一個極短的測試訊號
             model.generate_content("Hi", generation_config={"max_output_tokens": 1})
             return m
         except:
             continue
     return None
 
-valid_model_name = find_working_model()
-if not valid_model_name:
-    st.error("❌ 無法連接任何模型。")
-    st.stop()
-    
-# 建立模型時，不需在這裡設 safety_settings，我們在 generate_content 時設
-model = genai.GenerativeModel(valid_model_name)
+valid_model_name = get_stable_model()
 
-# --- 關鍵修正：定義「全開」的安全設定 ---
-# 這能防止 AI 因為提到「醫美失敗」、「黑特」就被過濾掉
+if not valid_model_name:
+    st.error("❌ 連線失敗。請確認您的 Key 是否有權限存取 gemini-pro。")
+    st.stop()
+
+# --- 3. 安全設定 (全開，防止醫美話題被擋) ---
 safe_settings = [
-    {
-        "category": "HARM_CATEGORY_HARASSMENT",
-        "threshold": "BLOCK_NONE"
-    },
-    {
-        "category": "HARM_CATEGORY_HATE_SPEECH",
-        "threshold": "BLOCK_NONE"
-    },
-    {
-        "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-        "threshold": "BLOCK_NONE"
-    },
-    {
-        "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
-        "threshold": "BLOCK_NONE"
-    },
+    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
 ]
 
-# --- 3. 讀取歷史風格 ---
+model = genai.GenerativeModel(valid_model_name)
+
+# 顯示目前使用的模型 (讓您確認不是 Flash)
+with st.sidebar:
+    st.success(f"✅ 已鎖定經典版模型：\n{valid_model_name}")
+    st.caption("已避開 1.5 Flash 與 2.5 版本")
+
+# --- 4. 讀取歷史風格 ---
 reference_titles = []
 if os.path.exists("history.txt"):
     try:
@@ -76,20 +69,20 @@ if os.path.exists("history.txt"):
     except:
         pass
 
-# --- 4. 參數設定 ---
+# --- 5. 提示詞設定 ---
 SYSTEM_INSTRUCTION = """
 你是一個台灣 PTT (批踢踢實業坊 Facelift 版) 的資深鄉民。
 **任務：寫出「完全不像 AI、口語化」的文章。**
 
 【風格準則】：
 1. **口語化**：句子要短，多用「啊、吧、嗎、了、的」。禁止使用「首先、其次、最後」。
-2. **情緒化**：符合PTT真實網友回文。
+2. **情緒化**：要有真實的困惑、生氣或猶豫。
 3. **格式要求**：
    - 內文：第一人稱，像在跟朋友聊天。
    - 回文：**每一行回文必須以 `推|`、`噓|` 或 `→|` 開頭**，後面接內容，不要有帳號。
 """
 
-# --- 5. 主介面 ---
+# --- 6. 主介面 ---
 if 'used_titles' not in st.session_state: st.session_state.used_titles = set()
 if 'candidate_titles' not in st.session_state: st.session_state.candidate_titles = []
 
@@ -112,7 +105,7 @@ with col2:
 
     st.markdown("---")
     if st.button("🚀 生成 5 個標題 (約18字)", use_container_width=True):
-        with st.spinner("AI 正在模仿鄉民語氣..."):
+        with st.spinner(f"正在使用 {valid_model_name} 生成..."):
             try:
                 target_tag = ptt_tag.split(" ")[0] if "隨機" not in ptt_tag else "[問題]或[閒聊]"
                 prompt = f"""
@@ -131,13 +124,10 @@ with col2:
                 titles = response.text.strip().split('\n')
                 st.session_state.candidate_titles = [t.strip() for t in titles if t.strip()][:5]
             except Exception as e:
-                # 這裡改為印出真實錯誤，不再只顯示「失敗」
-                st.error("❌ 生成失敗！原因如下：")
+                st.error("❌ 生成失敗！")
                 st.code(str(e))
-                if "FinishReason.SAFETY" in str(e):
-                    st.warning("💡 這是被 Google 的安全過濾器擋下了，因為話題可能涉及醫療風險或負面攻擊。")
 
-# --- 6. 結果顯示區 ---
+# --- 7. 結果顯示區 ---
 if st.session_state.candidate_titles:
     st.markdown("### 👇 生成結果 (點擊採用)")
     for i, t in enumerate(st.session_state.candidate_titles):
@@ -146,64 +136,5 @@ if st.session_state.candidate_titles:
             st.session_state.candidate_titles = []
             st.rerun()
 
-# --- 7. 內文撰寫區 ---
-if 'sel_title' in st.session_state:
-    st.divider()
-    st.markdown(f"## 📝 標題：{st.session_state.sel_title}")
-    
-    with st.expander("置入設定 (選填)"):
-        is_promo = st.checkbox("開啟置入")
-        prod_info = st.text_input("產品資訊", "XX診所")
-
-    if st.button("✍️ 撰寫內文 (去 AI 感模式)"):
-        with st.spinner("正在用鄉民口吻寫作..."):
-            try:
-                # 1. 先生成內文
-                body_prompt = f"""
-                {SYSTEM_INSTRUCTION}
-                標題：{st.session_state.sel_title}
-                主題：{user_topic}
-                語氣：{tone_intensity}
-                
-                任務：請寫一篇 PTT 內文 (約150-200字)。
-                要求：第一人稱，口語化，不要有開頭問候，不要結尾總結，就像隨手打的。
-                """
-                # 加入 safety_settings
-                body_response = model.generate_content(body_prompt, safety_settings=safe_settings).text
-                
-                # 2. 再生成回文
-                comment_prompt = f"""
-                {SYSTEM_INSTRUCTION}
-                針對這篇文章：
-                "{body_response}"
-                
-                生成 10 則 PTT 回文。
-                【嚴格格式要求】：
-                1. 每一行開頭必須是 `推|`。
-                2. 不要顯示 ID。
-                3. 直接換行，不要有空行。
-                4. 內容要風格自然。
-                {f"【置入】：請在其中 1-2 則自然提到「{prod_info}」。" if is_promo else ""}
-                """
-                # 加入 safety_settings
-                comment_response = model.generate_content(comment_prompt, safety_settings=safe_settings).text
-                
-                # --- 顯示結果 (強制格式處理) ---
-                st.subheader("內文：")
-                st.markdown(body_response)
-                
-                st.subheader("回文：")
-                
-                # 手動處理每一行，確保 Markdown 換行生效
-                comments = comment_response.strip().split('\n')
-                formatted_comments = ""
-                for c in comments:
-                    c = c.strip()
-                    if c:
-                        formatted_comments += c + "  \n" 
-                
-                st.markdown(formatted_comments)
-                
-            except Exception as e:
-                st.error("❌ 撰寫內文時發生錯誤：")
-                st.code(str(e))
+# --- 8. 內文撰寫區 ---
+if 'sel_title
