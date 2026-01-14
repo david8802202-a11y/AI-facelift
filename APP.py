@@ -151,10 +151,10 @@ if 'sel_title' in st.session_state:
             
             生成 10 則 PTT 回文。
             【嚴格格式要求】：
-            1. 每一行開頭必須是 `推`、`噓` 或 `→`。
+            1. 每一行開頭必須是 `推|`。
             2. 不要顯示 ID。
             3. 直接換行，不要有空行。
-            4. 內容要簡短嗆辣。
+            4. 內容要風格自然。
             {f"【置入】：請在其中 1-2 則自然提到「{prod_info}」。" if is_promo else ""}
             """
             comment_response = model.generate_content(comment_prompt).text
