@@ -167,7 +167,7 @@ if 'sel_title' in st.session_state:
                 "{body_response}"
                 
                 【回文格式】：
-                1. 每一行開頭必須是 `推|`、`噓|` 或 `→|`。
+                1. 每一行開頭必須是 `推|`。
                 2. **不要**有 ID。
                 3. 內容要簡短、像真人 (例如：真的...、笑死、+1)。
                 {f"【置入】：請在其中 1 則回文自然提到「{prod_info}」，不要太硬。" if is_promo else ""}
@@ -185,7 +185,7 @@ if 'sel_title' in st.session_state:
                 for c in comments:
                     c = c.strip()
                     if c:
-                        if any(x in c for x in ["推|", "噓|", "→|"]):
+                        if any(x in c for x in ["推|"]):
                              formatted_comments += c + "  \n"
                         elif len(c) > 2: 
                              formatted_comments += f"→| {c}  \n"
