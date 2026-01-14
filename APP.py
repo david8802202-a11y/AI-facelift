@@ -16,7 +16,7 @@ if not api_key:
 genai.configure(api_key=api_key)
 
 # 設定模型
-model_name = 'gemini-2.5-flash'
+model = 'gemini-2.5-flash'
 
 # --- 系統提示詞 (AI 的人設) ---
 SYSTEM_INSTRUCTION = """
