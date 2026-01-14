@@ -64,7 +64,7 @@ if 'titles' not in st.session_state: st.session_state.titles = []
 
 col1, col2 = st.columns(2)
 with col1:
-    tag = st.selectbox("標籤：", ["[討論]", "[問題]", "[心得]", "[閒聊]", "[黑特]"])
+    tag = st.selectbox("標籤：", ["[討論]", "[問題]"])
     cat = st.selectbox("議題分類：", list(DB.keys()))
 with col2:
     tone = st.select_slider("強度：", ["溫和", "熱烈", "炎上"], value="熱烈")
