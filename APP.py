@@ -96,4 +96,66 @@ if st.button("🚀 生成 PTT 熱門標題", use_container_width=True):
     請針對「{core}」生成 5 個標題。
     情境參考：{ctx}
     語氣要求：{tone}
-    請嚴格依照
+    請嚴格依照 JSON 格式輸出：{{"titles": ["標題1", "標題2", "標題3", "標題4", "標題5"]}}
+    """
+    
+    try:
+        response = model.generate_content(prompt)
+        # 清理可能存在的 markdown code block 標籤
+        clean_text = re.sub(r'```json\n?|\n?```', '', response.text).strip()
+        data = json.loads(clean_text)
+        st.session_state.titles = [f"{tag} {t}" for t in data['titles']]
+        st.session_state.sel = ""
+    except Exception as e:
+        st.error(f"API 連結失敗：{str(e)}")
+
+# 標題選擇區
+if st.session_state.titles:
+    st.subheader("💡 點選標題開始撰寫")
+    for t in st.session_state.titles:
+        if st.button(t, use_container_width=True):
+            st.session_state.sel = t
+
+# 完整文案撰寫
+if st.session_state.sel:
+    st.divider()
+    st.markdown(f"### 🚩 目前選定：{st.session_state.sel}")
+    
+    if st.button("✍️ 撰寫內文與推文"):
+        model = get_model_instance(model_choice, tone)
+        info = DB[cat]
+        
+        prompt = f"""
+        針對標題「{st.session_state.sel}」，寫一篇 PTT 風格文章。
+        核心關鍵字：{', '.join(info['keywords'])}
+        語氣參考：{info['example']}
+        
+        請嚴格依照 JSON 格式輸出：
+        {{
+            "content": "200字內文，包含 PTT 換行風格",
+            "comments": [
+                {{"type": "推", "msg": "推文1"}},
+                {{"type": "→", "msg": "推文2"}},
+                {{"type": "噓", "msg": "推文3"}}
+            ]
+        }}
+        生成 8 則推文。
+        """
+        
+        with st.spinner("AI 鄉民打字中..."):
+            try:
+                response = model.generate_content(prompt)
+                clean_text = re.sub(r'```json\n?|\n?```', '', response.text).strip()
+                result = json.loads(clean_text)
+                
+                st.info("【 文章內容 】")
+                st.write(result['content'])
+                
+                st.info("【 鄉民反應 】")
+                for c in result['comments']:
+                    symbol = c['type']
+                    msg = c['msg']
+                    color = "red" if symbol == "噓" else ("green" if symbol == "推" else "white")
+                    st.markdown(f"**{symbol}** : {msg}")
+            except Exception as e:
+                st.error("生成失敗，可能是 API 觸發安全過濾，請重試。")
