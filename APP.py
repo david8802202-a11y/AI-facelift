@@ -116,3 +116,75 @@ if st.button("🚀 生成標題建議", use_container_width=True):
         prompt = f"""你現在是 PTT 醫美版資深鄉民。
         任務：針對以下內容生成 5 個引戰或能激起討論的標題。
         【參考附件資料】：{all_refs if all_refs else "無"}
+        【主題內容】：{core}
+        限制：
+        1. 禁止廢話、禁止編號、禁止開場白。
+        2. 每行一個標題。語氣要像真人、犀利、討厭業配。
+        3. 情境：{ctx}"""
+
+        try:
+            response = model.generate_content(prompt)
+            # 檢查 API 是否回傳了內容
+            if response.candidates and response.candidates[0].content.parts:
+                res = response.text.strip().split('\n')
+                final_list = []
+                for t in res:
+                    t = re.sub(r'^[\d\-\.\s\[\]討論問題心得閒聊黑特：:]+', '', t).strip()
+                    if len(t) > 2: final_list.append(f"{tag} {t}")
+                st.session_state.titles = final_list[:5]
+                st.session_state.final_result = None
+            else:
+                st.error("⚠️ API 未回傳標題。可能是安全過濾封鎖，請嘗試簡化參考資料內容。")
+        except Exception as e:
+            if "429" in str(e):
+                st.error("🚫 額度已滿。請切換為 Flash 模型，或等一分鐘再試。")
+            else:
+                st.error(f"❌ 錯誤：{str(e)}")
+
+# --- 8. 顯示標題按鈕 (獨立於生成按鈕外) ---
+if st.session_state.titles:
+    st.write("### 👇 選擇標題開始撰寫")
+    # 使用 columns 讓按鈕橫向排列，節省空間
+    t_cols = st.columns(len(st.session_state.titles))
+    for i, t in enumerate(st.session_state.titles):
+        if t_cols[i].button(t, key=f"t_{i}"):
+            st.session_state.sel = t
+            st.session_state.final_result = None
+
+# --- 9. 文案撰寫與顯示 ---
+if st.session_state.sel:
+    st.divider()
+    st.subheader(f"📍 當前標題：{st.session_state.sel}")
+    
+    if st.button("✍️ 撰寫內文與推文", type="primary"):
+        with st.spinner("AI 鄉民打字中..."):
+            info = DB[cat]
+            prompt = f"""你現在是 PTT 鄉民。
+            針對標題「{st.session_state.sel}」寫一篇 150 字內文。
+            參考附件：{all_refs}
+            要求：第一人稱，禁止打招呼。語句要短、自然、帶情緒。
+            必須融入關鍵字：{", ".join(info['keywords'])}。
+            結尾加 [END]，隨後附上 8 則 PTT 格式推文。"""
+            
+            try:
+                raw_res = model.generate_content(prompt).text
+                st.session_state.final_result = raw_res
+            except Exception as e:
+                st.error(f"生成失敗：{str(e)}")
+
+    if st.session_state.final_result:
+        full_text = st.session_state.final_result
+        if "[END]" in full_text:
+            body, cmt_raw = full_text.split("[END]")
+            comments = cmt_raw.strip().split("\n")
+        else:
+            body, comments = full_text, []
+
+        st.info("【 文章內容 】")
+        st.code(body.replace("內文", "").strip(), language=None)
+        
+        st.warning("【 鄉民反應 】")
+        for c in comments:
+            clean_c = re.sub(r'^[推噓→\|:\s\d\.-]+', '', c).strip().replace("?", "").replace("？", "")
+            if len(clean_c) > 2:
+                st.write(f"**{random.choice(['推', '→', '噓', '推'])}** | {clean_c}")
