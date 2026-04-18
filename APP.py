@@ -1,26 +1,11 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-import json
-import base64
+import os
 
 st.set_page_config(page_title="SmartFit", page_icon="💪", layout="wide")
 
-# ==================== 圖片數據 ====================
-# 從上傳的 JSON 讀取圖片
-@st.cache_resource
-def load_images():
-    try:
-        with open('smartfit_images.py', 'r') as f:
-            content = f.read()
-            # 執行動態載入
-            exec_dict = {}
-            exec(content, exec_dict)
-            return exec_dict.get('ALL_IMAGES_DATA', {})
-    except:
-        return {}
-
-IMAGES_DATA = load_images()
+BODY_PARTS = ["胸部", "背部", "肩膀", "手臂", "腿部", "核心"]
 
 # ==================== 50個動作 ====================
 EXERCISES = [
@@ -45,8 +30,8 @@ EXERCISES = [
     {"id": "018", "nameCN": "仰臥起坐", "bodyPart": "核心", "difficulty": "初級", "sets": 3, "reps": 15, "category": "徒手/啞鈴", "equipment": "無", "filename": "sit_ups.jpg", "tips": ["膝蓋彎曲", "不拉脖子", "胸部向膝"]},
     {"id": "019", "nameCN": "爬山者", "bodyPart": "核心", "difficulty": "中級", "sets": 3, "reps": 20, "category": "徒手/啞鈴", "equipment": "無", "filename": "mountain_climbers.jpg", "tips": ["快速交替", "保持俯臥撑", "核心緊縮"]},
     {"id": "020", "nameCN": "抬腿", "bodyPart": "核心", "difficulty": "初級", "sets": 3, "reps": 12, "category": "徒手/啞鈴", "equipment": "無", "filename": "leg_raises.jpg", "tips": ["背部貼地", "腿部直", "控制速度"]},
-
-    # 健身房儀器 (21-50) - 21-27已有圖片
+    
+    # 健身房儀器 (21-50) - 只有21-27有圖片
     {"id": "021", "nameCN": "槓鈴臥推", "bodyPart": "胸部", "difficulty": "中級", "sets": 4, "reps": 8, "category": "健身房儀器", "equipment": "槓鈴", "filename": "barbell_bench.jpg", "tips": ["背貼板", "肩膀穩定", "平順動作"]},
     {"id": "022", "nameCN": "胸部推蹬機", "bodyPart": "胸部", "difficulty": "初級", "sets": 3, "reps": 12, "category": "健身房儀器", "equipment": "推蹬機", "filename": "chest_machine.jpg", "tips": ["坐直對齊", "完全推出", "控制回放"]},
     {"id": "023", "nameCN": "拉力機夾胸", "bodyPart": "胸部", "difficulty": "中級", "sets": 3, "reps": 12, "category": "健身房儀器", "equipment": "拉力機", "filename": "cable_flyes.jpg", "tips": ["手臂微彎", "控制回放", "集中收縮"]},
@@ -54,34 +39,30 @@ EXERCISES = [
     {"id": "025", "nameCN": "胸部飛鳥機", "bodyPart": "胸部", "difficulty": "中級", "sets": 3, "reps": 12, "category": "健身房儀器", "equipment": "飛鳥機", "filename": "pec_deck.jpg", "tips": ["手臂微彎", "控制回放", "充分收縮"]},
     {"id": "026", "nameCN": "槓鈴划船", "bodyPart": "背部", "difficulty": "中級", "sets": 4, "reps": 8, "category": "健身房儀器", "equipment": "槓鈴", "filename": "barbell_rows.jpg", "tips": ["膝蓋微彎", "背部直", "拉至腹"]},
     {"id": "027", "nameCN": "下拉機", "bodyPart": "背部", "difficulty": "初級", "sets": 3, "reps": 12, "category": "健身房儀器", "equipment": "下拉機", "filename": "lat_pulldown.jpg", "tips": ["拉至胸", "控制回放", "核心緊縮"]},
-
-    # 尚未上傳圖片的動作 (28-50)
-    {"id": "028", "nameCN": "拉力機划船", "bodyPart": "背部", "difficulty": "初級", "sets": 4, "reps": 12, "category": "健身房儀器", "equipment": "拉力機", "filename": "cable_rows.jpg", "tips": ["坐直挺胸", "拉至腹", "控制回放"]},
-    {"id": "029", "nameCN": "T槓划船", "bodyPart": "背部", "difficulty": "中級", "sets": 4, "reps": 10, "category": "健身房儀器", "equipment": "T槓", "filename": "t_bar_rows.jpg", "tips": ["身體穩定", "拉至胸", "控制下降"]},
-    {"id": "030", "nameCN": "背闊肌拉力機", "bodyPart": "背部", "difficulty": "初級", "sets": 3, "reps": 12, "category": "健身房儀器", "equipment": "背闊肌機", "filename": "lat_machine.jpg", "tips": ["坐直", "拉至腹", "控制回放"]},
-    {"id": "031", "nameCN": "槓鈴肩推", "bodyPart": "肩膀", "difficulty": "中級", "sets": 3, "reps": 12, "category": "健身房儀器", "equipment": "槓鈴", "filename": "barbell_shoulder_press.jpg", "tips": ["槓在肩", "上推至頂", "控制下降"]},
-    {"id": "032", "nameCN": "肩推機", "bodyPart": "肩膀", "difficulty": "初級", "sets": 3, "reps": 12, "category": "健身房儀器", "equipment": "肩推機", "filename": "shoulder_press_machine.jpg", "tips": ["坐直", "推至頂部", "控制下降"]},
-    {"id": "033", "nameCN": "側平舉機", "bodyPart": "肩膀", "difficulty": "初級", "sets": 3, "reps": 12, "category": "健身房儀器", "equipment": "側平舉機", "filename": "lateral_raise_machine.jpg", "tips": ["坐直", "抬至肩高", "控制速度"]},
-    {"id": "034", "nameCN": "反向夾胸機", "bodyPart": "肩膀", "difficulty": "初級", "sets": 3, "reps": 12, "category": "健身房儀器", "equipment": "夾胸機", "filename": "reverse_pec_deck.jpg", "tips": ["坐直", "手臂向外", "控制回放"]},
-    {"id": "035", "nameCN": "前平舉機", "bodyPart": "肩膀", "difficulty": "初級", "sets": 3, "reps": 12, "category": "健身房儀器", "equipment": "前平舉機", "filename": "front_raise_machine.jpg", "tips": ["坐直", "推至肩高", "控制速度"]},
-    {"id": "036", "nameCN": "繩索下壓", "bodyPart": "手臂", "difficulty": "初級", "sets": 3, "reps": 12, "category": "健身房儀器", "equipment": "拉力機", "filename": "rope_pushdown.jpg", "tips": ["肘部不動", "完全伸展", "控制回放"]},
-    {"id": "037", "nameCN": "拉力機彎舉", "bodyPart": "手臂", "difficulty": "初級", "sets": 3, "reps": 12, "category": "健身房儀器", "equipment": "拉力機", "filename": "cable_curls.jpg", "tips": ["肘部固定", "張力持續", "控制回放"]},
-    {"id": "038", "nameCN": "三頭撐體機", "bodyPart": "手臂", "difficulty": "初級", "sets": 3, "reps": 12, "category": "健身房儀器", "equipment": "撐體機", "filename": "dip_machine.jpg", "tips": ["身體向前", "肘部90度", "完整動作"]},
-    {"id": "039", "nameCN": "二頭彎舉機", "bodyPart": "手臂", "difficulty": "初級", "sets": 3, "reps": 12, "category": "健身房儀器", "equipment": "彎舉機", "filename": "bicep_machine.jpg", "tips": ["坐直", "充分收縮", "控制速度"]},
-    {"id": "040", "nameCN": "三頭肌機器", "bodyPart": "手臂", "difficulty": "初級", "sets": 3, "reps": 12, "category": "健身房儀器", "equipment": "三頭機", "filename": "tricep_machine.jpg", "tips": ["坐直", "完全伸展", "控制回放"]},
-    {"id": "041", "nameCN": "推蹬機", "bodyPart": "腿部", "difficulty": "初級", "sets": 3, "reps": 15, "category": "健身房儀器", "equipment": "推蹬機", "filename": "leg_press.jpg", "tips": ["腳在機器", "完全伸展", "控制下降"]},
-    {"id": "042", "nameCN": "腿部卷舉機", "bodyPart": "腿部", "difficulty": "初級", "sets": 3, "reps": 12, "category": "健身房儀器", "equipment": "卷舉機", "filename": "leg_curl.jpg", "tips": ["坐直", "卷至胸", "控制回放"]},
-    {"id": "043", "nameCN": "腿部伸展機", "bodyPart": "腿部", "difficulty": "初級", "sets": 3, "reps": 12, "category": "健身房儀器", "equipment": "伸展機", "filename": "leg_extension.jpg", "tips": ["坐直", "完全伸展", "控制回放"]},
-    {"id": "044", "nameCN": "哈克深蹲機", "bodyPart": "腿部", "difficulty": "中級", "sets": 3, "reps": 12, "category": "健身房儀器", "equipment": "哈克機", "filename": "hack_squat.jpg", "tips": ["肩膀靠機", "深蹲至平行", "完整動作"]},
-    {"id": "045", "nameCN": "槓鈴深蹲", "bodyPart": "腿部", "difficulty": "中級", "sets": 4, "reps": 8, "category": "健身房儀器", "equipment": "槓鈴", "filename": "barbell_squat.jpg", "tips": ["槓在肩", "直立姿勢", "深蹲至平行"]},
-    {"id": "046", "nameCN": "拉力卷腹", "bodyPart": "核心", "difficulty": "初級", "sets": 3, "reps": 12, "category": "健身房儀器", "equipment": "拉力機", "filename": "cable_crunches.jpg", "tips": ["膝蓋彎", "卷至膝", "控制回放"]},
-    {"id": "047", "nameCN": "腹肌卷腹機", "bodyPart": "核心", "difficulty": "初級", "sets": 3, "reps": 12, "category": "健身房儀器", "equipment": "卷腹機", "filename": "ab_machine.jpg", "tips": ["坐直對齊", "卷起完整", "控制回放"]},
-    {"id": "048", "nameCN": "滑輪卷腹", "bodyPart": "核心", "difficulty": "中級", "sets": 3, "reps": 10, "category": "健身房儀器", "equipment": "滑輪", "filename": "ab_wheel.jpg", "tips": ["膝蓋跪", "向前滾", "回收縮腹"]},
-    {"id": "049", "nameCN": "旋轉腹肌機", "bodyPart": "核心", "difficulty": "初級", "sets": 3, "reps": 12, "category": "健身房儀器", "equipment": "旋轉機", "filename": "rotary_core.jpg", "tips": ["坐直", "緩慢旋轉", "控制速度"]},
-    {"id": "050", "nameCN": "懸掛抬腿", "bodyPart": "核心", "difficulty": "中級", "sets": 3, "reps": 10, "category": "健身房儀器", "equipment": "單槓", "filename": "hanging_leg_raises.jpg", "tips": ["握把穩定", "腿抬至水平", "控制下降"]},
+    {"id": "028", "nameCN": "拉力機划船", "bodyPart": "背部", "difficulty": "初級", "sets": 4, "reps": 12, "category": "健身房儀器", "equipment": "拉力機", "filename": None, "tips": ["坐直挺胸", "拉至腹", "控制回放"]},
+    {"id": "029", "nameCN": "T槓划船", "bodyPart": "背部", "difficulty": "中級", "sets": 4, "reps": 10, "category": "健身房儀器", "equipment": "T槓", "filename": None, "tips": ["身體穩定", "拉至胸", "控制下降"]},
+    {"id": "030", "nameCN": "背闊肌拉力機", "bodyPart": "背部", "difficulty": "初級", "sets": 3, "reps": 12, "category": "健身房儀器", "equipment": "背闊肌機", "filename": None, "tips": ["坐直", "拉至腹", "控制回放"]},
+    {"id": "031", "nameCN": "槓鈴肩推", "bodyPart": "肩膀", "difficulty": "中級", "sets": 3, "reps": 12, "category": "健身房儀器", "equipment": "槓鈴", "filename": None, "tips": ["槓在肩", "上推至頂", "控制下降"]},
+    {"id": "032", "nameCN": "肩推機", "bodyPart": "肩膀", "difficulty": "初級", "sets": 3, "reps": 12, "category": "健身房儀器", "equipment": "肩推機", "filename": None, "tips": ["坐直", "推至頂部", "控制下降"]},
+    {"id": "033", "nameCN": "側平舉機", "bodyPart": "肩膀", "difficulty": "初級", "sets": 3, "reps": 12, "category": "健身房儀器", "equipment": "側平舉機", "filename": None, "tips": ["坐直", "抬至肩高", "控制速度"]},
+    {"id": "034", "nameCN": "反向夾胸機", "bodyPart": "肩膀", "difficulty": "初級", "sets": 3, "reps": 12, "category": "健身房儀器", "equipment": "夾胸機", "filename": None, "tips": ["坐直", "手臂向外", "控制回放"]},
+    {"id": "035", "nameCN": "前平舉機", "bodyPart": "肩膀", "difficulty": "初級", "sets": 3, "reps": 12, "category": "健身房儀器", "equipment": "前平舉機", "filename": None, "tips": ["坐直", "推至肩高", "控制速度"]},
+    {"id": "036", "nameCN": "繩索下壓", "bodyPart": "手臂", "difficulty": "初級", "sets": 3, "reps": 12, "category": "健身房儀器", "equipment": "拉力機", "filename": None, "tips": ["肘部不動", "完全伸展", "控制回放"]},
+    {"id": "037", "nameCN": "拉力機彎舉", "bodyPart": "手臂", "difficulty": "初級", "sets": 3, "reps": 12, "category": "健身房儀器", "equipment": "拉力機", "filename": None, "tips": ["肘部固定", "張力持續", "控制回放"]},
+    {"id": "038", "nameCN": "三頭撐體機", "bodyPart": "手臂", "difficulty": "初級", "sets": 3, "reps": 12, "category": "健身房儀器", "equipment": "撐體機", "filename": None, "tips": ["身體向前", "肘部90度", "完整動作"]},
+    {"id": "039", "nameCN": "二頭彎舉機", "bodyPart": "手臂", "difficulty": "初級", "sets": 3, "reps": 12, "category": "健身房儀器", "equipment": "彎舉機", "filename": None, "tips": ["坐直", "充分收縮", "控制速度"]},
+    {"id": "040", "nameCN": "三頭肌機器", "bodyPart": "手臂", "difficulty": "初級", "sets": 3, "reps": 12, "category": "健身房儀器", "equipment": "三頭機", "filename": None, "tips": ["坐直", "完全伸展", "控制回放"]},
+    {"id": "041", "nameCN": "推蹬機", "bodyPart": "腿部", "difficulty": "初級", "sets": 3, "reps": 15, "category": "健身房儀器", "equipment": "推蹬機", "filename": None, "tips": ["腳在機器", "完全伸展", "控制下降"]},
+    {"id": "042", "nameCN": "腿部卷舉機", "bodyPart": "腿部", "difficulty": "初級", "sets": 3, "reps": 12, "category": "健身房儀器", "equipment": "卷舉機", "filename": None, "tips": ["坐直", "卷至胸", "控制回放"]},
+    {"id": "043", "nameCN": "腿部伸展機", "bodyPart": "腿部", "difficulty": "初級", "sets": 3, "reps": 12, "category": "健身房儀器", "equipment": "伸展機", "filename": None, "tips": ["坐直", "完全伸展", "控制回放"]},
+    {"id": "044", "nameCN": "哈克深蹲機", "bodyPart": "腿部", "difficulty": "中級", "sets": 3, "reps": 12, "category": "健身房儀器", "equipment": "哈克機", "filename": None, "tips": ["肩膀靠機", "深蹲至平行", "完整動作"]},
+    {"id": "045", "nameCN": "槓鈴深蹲", "bodyPart": "腿部", "difficulty": "中級", "sets": 4, "reps": 8, "category": "健身房儀器", "equipment": "槓鈴", "filename": None, "tips": ["槓在肩", "直立姿勢", "深蹲至平行"]},
+    {"id": "046", "nameCN": "拉力卷腹", "bodyPart": "核心", "difficulty": "初級", "sets": 3, "reps": 12, "category": "健身房儀器", "equipment": "拉力機", "filename": None, "tips": ["膝蓋彎", "卷至膝", "控制回放"]},
+    {"id": "047", "nameCN": "腹肌卷腹機", "bodyPart": "核心", "difficulty": "初級", "sets": 3, "reps": 12, "category": "健身房儀器", "equipment": "卷腹機", "filename": None, "tips": ["坐直對齊", "卷起完整", "控制回放"]},
+    {"id": "048", "nameCN": "滑輪卷腹", "bodyPart": "核心", "difficulty": "中級", "sets": 3, "reps": 10, "category": "健身房儀器", "equipment": "滑輪", "filename": None, "tips": ["膝蓋跪", "向前滾", "回收縮腹"]},
+    {"id": "049", "nameCN": "旋轉腹肌機", "bodyPart": "核心", "difficulty": "初級", "sets": 3, "reps": 12, "category": "健身房儀器", "equipment": "旋轉機", "filename": None, "tips": ["坐直", "緩慢旋轉", "控制速度"]},
+    {"id": "050", "nameCN": "懸掛抬腿", "bodyPart": "核心", "difficulty": "中級", "sets": 3, "reps": 10, "category": "健身房儀器", "equipment": "單槓", "filename": None, "tips": ["握把穩定", "腿抬至水平", "控制下降"]},
 ]
-
-BODY_PARTS = ["胸部", "背部", "肩膀", "手臂", "腿部", "核心"]
 
 # ==================== Session State ====================
 if "page" not in st.session_state:
@@ -103,28 +84,20 @@ if "selected_exercises" not in st.session_state:
 def get_exercises(body_parts, category):
     return [e for e in EXERCISES if e["category"] == category and e["bodyPart"] in body_parts]
 
-def get_image(filename):
-    """從 IMAGES_DATA 獲取圖片"""
-    if filename in IMAGES_DATA:
-        return IMAGES_DATA[filename]
-    return None
-
 def display_image(filename):
-    """顯示圖片"""
-    img_data = get_image(filename)
-    if img_data:
-        st.image(img_data)
-        return True
-    else:
-        st.warning(f"⏳ 圖片 {filename} 準備中...")
-        return False
+    if filename:
+        image_path = f"images/{filename}"
+        if os.path.exists(image_path):
+            st.image(image_path, use_column_width=True)
+            return True
+    st.warning("⏳ 圖片準備中...")
+    return False
 
 # ==================== 側邊欄 ====================
 with st.sidebar:
-    st.title("💪 SmartFit v8")
-    uploaded = len(IMAGES_DATA)
-    st.write(f"✅ 已上傳: {uploaded}/50 張圖片")
-    st.write(f"📍 進度: {int(uploaded/50*100)}%")
+    st.title("💪 SmartFit")
+    st.write("✅ 已上傳: 27/50 張圖片")
+    st.write("📍 進度: 54%")
     
     if st.button("🏠 首頁", use_container_width=True, key="nav_home"):
         st.session_state.page = "home"
@@ -171,7 +144,7 @@ if st.session_state.page == "home":
             for ex in all_exercises:
                 col1, col2, col3, col4 = st.columns([2, 0.8, 1, 1.2])
                 with col1:
-                    has_img = "✅" if ex["filename"] in IMAGES_DATA else "⏳"
+                    has_img = "✅" if ex["filename"] and os.path.exists(f"images/{ex['filename']}") else "⏳"
                     st.write(f"{has_img} **{ex['nameCN']}** ({ex['difficulty']})")
                 with col2:
                     if st.checkbox("選", key=f"select_{ex['id']}"):
@@ -209,7 +182,8 @@ elif st.session_state.page == "detail":
             for tip in ex["tips"]:
                 st.write(f"• {tip}")
         with col2:
-            display_image(ex["filename"])
+            if ex["filename"]:
+                display_image(ex["filename"])
         
         if st.button("⬅️ 返回首頁"):
             st.session_state.page = "home"
@@ -233,7 +207,8 @@ elif st.session_state.page == "workout":
                 st.write(f"部位: {ex['bodyPart']} | 難度: {ex['difficulty']}")
                 st.write(f"器材: {ex['equipment']}")
             with col2:
-                display_image(ex["filename"])
+                if ex["filename"]:
+                    display_image(ex["filename"])
             
             col1, col2 = st.columns(2)
             with col1:
@@ -311,20 +286,9 @@ elif st.session_state.page == "settings":
     st.session_state.user["age"] = st.slider("年齡", 15, 100, st.session_state.user["age"])
     
     c1, c2, c3 = st.columns(3)
-    c1.metric("版本", "8.0 完整版")
+    c1.metric("版本", "9.0 完整版")
     c2.metric("動作", "50")
-    c3.metric("圖片進度", f"{len(IMAGES_DATA)}/50 ({int(len(IMAGES_DATA)/50*100)}%)")
+    c3.metric("圖片進度", "27/50 (54%)")
     
     st.divider()
-    st.subheader("📝 版本信息")
-    st.success(f"""
-    ✅ SmartFit v8 - 完整集成版
-    
-    ✅ 50 個完整動作
-    ✅ {len(IMAGES_DATA)} 張高質量圖片
-    ✅ 完整訓練系統
-    ✅ 訓練記錄統計
-    ✅ 自選動作功能
-    
-    ⏳ 待上傳: {50 - len(IMAGES_DATA)} 張圖片
-    """)
+    st.success("✅ SmartFit v9 - 27張圖片已集成！")
