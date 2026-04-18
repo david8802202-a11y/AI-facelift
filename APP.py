@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-import os
+from image_data import IMAGES_DATA
 
 st.set_page_config(page_title="SmartFit", page_icon="💪", layout="wide")
 
@@ -31,7 +31,7 @@ EXERCISES = [
     {"id": "019", "nameCN": "爬山者", "bodyPart": "核心", "difficulty": "中級", "sets": 3, "reps": 20, "category": "徒手/啞鈴", "equipment": "無", "filename": "mountain_climbers.jpg", "tips": ["快速交替", "保持俯臥撑", "核心緊縮"]},
     {"id": "020", "nameCN": "抬腿", "bodyPart": "核心", "difficulty": "初級", "sets": 3, "reps": 12, "category": "徒手/啞鈴", "equipment": "無", "filename": "leg_raises.jpg", "tips": ["背部貼地", "腿部直", "控制速度"]},
     
-    # 健身房儀器 (21-50) - 只有21-27有圖片
+    # 健身房儀器 (21-50) - 21-27 有圖片
     {"id": "021", "nameCN": "槓鈴臥推", "bodyPart": "胸部", "difficulty": "中級", "sets": 4, "reps": 8, "category": "健身房儀器", "equipment": "槓鈴", "filename": "barbell_bench.jpg", "tips": ["背貼板", "肩膀穩定", "平順動作"]},
     {"id": "022", "nameCN": "胸部推蹬機", "bodyPart": "胸部", "difficulty": "初級", "sets": 3, "reps": 12, "category": "健身房儀器", "equipment": "推蹬機", "filename": "chest_machine.jpg", "tips": ["坐直對齊", "完全推出", "控制回放"]},
     {"id": "023", "nameCN": "拉力機夾胸", "bodyPart": "胸部", "difficulty": "中級", "sets": 3, "reps": 12, "category": "健身房儀器", "equipment": "拉力機", "filename": "cable_flyes.jpg", "tips": ["手臂微彎", "控制回放", "集中收縮"]},
@@ -85,13 +85,13 @@ def get_exercises(body_parts, category):
     return [e for e in EXERCISES if e["category"] == category and e["bodyPart"] in body_parts]
 
 def display_image(filename):
-    if filename:
-        image_path = f"images/{filename}"
-        if os.path.exists(image_path):
-            st.image(image_path, use_column_width=True)
-            return True
-    st.warning("⏳ 圖片準備中...")
-    return False
+    """直接用 data URL 顯示圖片"""
+    if filename and filename in IMAGES_DATA:
+        st.image(IMAGES_DATA[filename])
+        return True
+    else:
+        st.warning("⏳ 圖片準備中...")
+        return False
 
 # ==================== 側邊欄 ====================
 with st.sidebar:
@@ -144,7 +144,7 @@ if st.session_state.page == "home":
             for ex in all_exercises:
                 col1, col2, col3, col4 = st.columns([2, 0.8, 1, 1.2])
                 with col1:
-                    has_img = "✅" if ex["filename"] and os.path.exists(f"images/{ex['filename']}") else "⏳"
+                    has_img = "✅" if ex["filename"] and ex["filename"] in IMAGES_DATA else "⏳"
                     st.write(f"{has_img} **{ex['nameCN']}** ({ex['difficulty']})")
                 with col2:
                     if st.checkbox("選", key=f"select_{ex['id']}"):
@@ -217,7 +217,7 @@ elif st.session_state.page == "workout":
                 st.metric("次", prog["reps"])
             
             st.divider()
-            st.subheader("執行技巧:")
+            st.subheading("執行技巧:")
             for tip in ex["tips"]:
                 st.write(f"✅ {tip}")
             
@@ -286,9 +286,9 @@ elif st.session_state.page == "settings":
     st.session_state.user["age"] = st.slider("年齡", 15, 100, st.session_state.user["age"])
     
     c1, c2, c3 = st.columns(3)
-    c1.metric("版本", "9.0 完整版")
+    c1.metric("版本", "10.0 完整版")
     c2.metric("動作", "50")
     c3.metric("圖片進度", "27/50 (54%)")
     
     st.divider()
-    st.success("✅ SmartFit v9 - 27張圖片已集成！")
+    st.success("✅ SmartFit v10 - 27張圖片已完全集成！")
